@@ -1,0 +1,13 @@
+[mcp_servers.supabase]
+url = "https://mcp.supabase.com/mcp?project_ref=wkgvnpamnhesmmbyikml&features=docs%2Cdatabase%2Cdebugging%2Cdevelopment%2Cfunctions"
+default_tools_approval_mode = "writes"
+startup_timeout_sec = 60
+tool_timeout_sec = 120
+required = false
+
+[mcp_servers.resend]
+url = "https://mcp.resend.com/mcp"
+default_tools_approval_mode = "writes"
+startup_timeout_sec = 60
+tool_timeout_sec = 120
+required = false

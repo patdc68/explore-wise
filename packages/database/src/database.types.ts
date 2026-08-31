@@ -61,6 +61,48 @@ export type Database = {
           },
         ]
       }
+      ew_data_sources: {
+        Row: {
+          attribution_text: string | null
+          code: string
+          created_at: string
+          id: string
+          is_active: boolean
+          license_name: string | null
+          license_url: string | null
+          name: string
+          source_type: string
+          updated_at: string
+          website_url: string | null
+        }
+        Insert: {
+          attribution_text?: string | null
+          code: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          license_name?: string | null
+          license_url?: string | null
+          name: string
+          source_type: string
+          updated_at?: string
+          website_url?: string | null
+        }
+        Update: {
+          attribution_text?: string | null
+          code?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          license_name?: string | null
+          license_url?: string | null
+          name?: string
+          source_type?: string
+          updated_at?: string
+          website_url?: string | null
+        }
+        Relationships: []
+      }
       ew_favorites: {
         Row: {
           created_at: string
@@ -83,6 +125,167 @@ export type Database = {
             columns: ["place_id"]
             isOneToOne: false
             referencedRelation: "ew_places"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ew_ingestion_runs: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          error_count: number
+          id: string
+          metadata: Json | null
+          records_inserted: number
+          records_received: number
+          records_rejected: number
+          records_unchanged: number
+          records_updated: number
+          records_valid: number
+          region_code: string | null
+          source_id: string
+          started_at: string
+          status: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          error_count?: number
+          id?: string
+          metadata?: Json | null
+          records_inserted?: number
+          records_received?: number
+          records_rejected?: number
+          records_unchanged?: number
+          records_updated?: number
+          records_valid?: number
+          region_code?: string | null
+          source_id: string
+          started_at?: string
+          status?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          error_count?: number
+          id?: string
+          metadata?: Json | null
+          records_inserted?: number
+          records_received?: number
+          records_rejected?: number
+          records_unchanged?: number
+          records_updated?: number
+          records_valid?: number
+          region_code?: string | null
+          source_id?: string
+          started_at?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ew_ingestion_runs_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "ew_data_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ew_place_import_staging: {
+        Row: {
+          address: string | null
+          category_source_code: string | null
+          city: string | null
+          country_code: string | null
+          created_at: string
+          currency_code: string | null
+          dedupe_key: string | null
+          district: string | null
+          id: string
+          ingestion_run_id: string
+          latitude: number | null
+          longitude: number | null
+          name: string | null
+          normalized_name: string | null
+          phone_number: string | null
+          processed_at: string | null
+          region: string | null
+          source_id: string
+          source_payload: Json | null
+          source_place_id: string | null
+          source_updated_at: string | null
+          timezone: string | null
+          validation_errors: Json | null
+          validation_status: string
+          website_url: string | null
+        }
+        Insert: {
+          address?: string | null
+          category_source_code?: string | null
+          city?: string | null
+          country_code?: string | null
+          created_at?: string
+          currency_code?: string | null
+          dedupe_key?: string | null
+          district?: string | null
+          id?: string
+          ingestion_run_id: string
+          latitude?: number | null
+          longitude?: number | null
+          name?: string | null
+          normalized_name?: string | null
+          phone_number?: string | null
+          processed_at?: string | null
+          region?: string | null
+          source_id: string
+          source_payload?: Json | null
+          source_place_id?: string | null
+          source_updated_at?: string | null
+          timezone?: string | null
+          validation_errors?: Json | null
+          validation_status?: string
+          website_url?: string | null
+        }
+        Update: {
+          address?: string | null
+          category_source_code?: string | null
+          city?: string | null
+          country_code?: string | null
+          created_at?: string
+          currency_code?: string | null
+          dedupe_key?: string | null
+          district?: string | null
+          id?: string
+          ingestion_run_id?: string
+          latitude?: number | null
+          longitude?: number | null
+          name?: string | null
+          normalized_name?: string | null
+          phone_number?: string | null
+          processed_at?: string | null
+          region?: string | null
+          source_id?: string
+          source_payload?: Json | null
+          source_place_id?: string | null
+          source_updated_at?: string | null
+          timezone?: string | null
+          validation_errors?: Json | null
+          validation_status?: string
+          website_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ew_place_import_staging_run_source_fkey"
+            columns: ["ingestion_run_id", "source_id"]
+            isOneToOne: false
+            referencedRelation: "ew_ingestion_runs"
+            referencedColumns: ["id", "source_id"]
+          },
+          {
+            foreignKeyName: "ew_place_import_staging_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "ew_data_sources"
             referencedColumns: ["id"]
           },
         ]

@@ -27,7 +27,7 @@ The explicit Foursquare connectivity probe may call the read-only Iceberg catalo
 
 Optional website, licence, and attribution fields remain null until verified metadata is deliberately added.
 
-`ew_ingestion_runs` records source, optional region, lifecycle status, counts, timestamps, and object-shaped metadata. Status is constrained to `pending`, `running`, `completed`, `failed`, or `partial`; all counts must be non-negative.
+`ew_ingestion_runs` records source, optional region, lifecycle status, counts, timestamps, and object-shaped metadata. `records_received` is the number of processed source records; `records_valid` counts only `valid` staging records; `records_rejected` counts only `invalid` staging records. Review rows never increment `records_rejected`; finalization records `staging_valid`, `staging_review`, `staging_rejected`, and `staging_inserted` in metadata. Status is constrained to `pending`, `running`, `completed`, `failed`, or `partial`; all counts must be non-negative.
 
 `ew_place_import_staging` retains run/source linkage, opaque source identity, raw payload, original source name, source update timestamp, normalized fields, validation state, structured errors, and the deterministic dedupe key. Its composite foreign key guarantees that a staging row's source matches its ingestion run. A unique constraint on `(ingestion_run_id, source_id, source_place_id)` detects duplicate source records within one run.
 

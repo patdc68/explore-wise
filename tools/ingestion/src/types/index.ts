@@ -143,9 +143,16 @@ export interface IngestionSummary {
   region: string;
   received: number;
   valid: number;
+  review: number;
   rejected: number;
   inserted: number;
   updated: number;
   unchanged: number;
   errors: number;
+  metadata: {
+    staging_valid: number;
+    staging_review: number;
+    staging_rejected: number;
+    staging_inserted: number;
+  };
 }

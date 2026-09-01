@@ -40,6 +40,10 @@ Supported CLI options:
 
 Dry-run performs source reading, normalization, validation, duplicate detection, category resolution, and idempotency classification. It does not create an ingestion run, stage rows, or write `ew_places`.
 
+## Future production eligibility
+
+Staging validation and public-production eligibility are intentionally separate. The deterministic source-quality policy lives in `src/eligibility/production-eligibility.ts`: no unresolved flags is eligible; `duplicate` requires review; `closed` and `privatevenue` are excluded from public discovery. Any other unresolved source flag is held for review. A promotion workflow must additionally require a valid staged row and a mapped category; this package does not promote rows or write `ew_places`.
+
 ## Environment
 
 Copy `.env.example` to `.env.local` when running the explicit live Foursquare probe:

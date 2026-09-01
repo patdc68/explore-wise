@@ -1,4 +1,5 @@
 import { decideIdempotency } from "./deduplication/idempotency.js";
+import { countStagingRunCounters } from "./accounting/run-counters.js";
 import { createPrimarySourceIdentity } from "./normalization/identity.js";
 import { toProductionPlaceWrite } from "./database/production-place-write.js";
 import type { IngestionRepository } from "./database/repository.js";
@@ -38,6 +39,7 @@ export async function runIngestion(options: RunIngestionOptions): Promise<Ingest
   const productionWrites = stagingRecords
     .filter((record) => record.validationStatus === "valid")
     .map(toProductionPlaceWrite);
+  const stagingCounters = countStagingRunCounters(stagingRecords);
   const existingPlaces = await options.repository.findExistingPlaces(productionWrites);
   const writesToApply: ProductionPlaceWrite[] = [];
   let inserted = 0;
@@ -63,12 +65,19 @@ export async function runIngestion(options: RunIngestionOptions): Promise<Ingest
     source: options.context.sourceCode,
     region: options.context.region.regionCode,
     received: stagingRecords.length,
-    valid: productionWrites.length,
-    rejected: stagingRecords.length - productionWrites.length,
+    valid: stagingCounters.stagingValid,
+    review: stagingCounters.stagingReview,
+    rejected: stagingCounters.stagingRejected,
     inserted,
     updated,
     unchanged,
     errors: stagingRecords.reduce((total, record) => total + record.validationErrors.length, 0),
+    metadata: {
+      staging_valid: stagingCounters.stagingValid,
+      staging_review: stagingCounters.stagingReview,
+      staging_rejected: stagingCounters.stagingRejected,
+      staging_inserted: stagingCounters.stagingInserted,
+    },
   };
 
   if (!options.dryRun) {
@@ -80,4 +89,3 @@ export async function runIngestion(options: RunIngestionOptions): Promise<Ingest
 
   return summary;
 }
-

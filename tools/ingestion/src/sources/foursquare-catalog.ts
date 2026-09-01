@@ -426,7 +426,7 @@ export class FoursquareIcebergCatalog implements FoursquareCatalogReader {
         ${limitClause}`;
   }
 
-  private optimizedRelevantPlacesParameters(region: RegionConfig, limit: number): Record<string, string | number> {
+  private optimizedRelevantPlacesParameters(region: RegionConfig, limit?: number): Record<string, string | number> {
     return {
       country: region.countryCode,
       region: region.displayName,
@@ -434,7 +434,7 @@ export class FoursquareIcebergCatalog implements FoursquareCatalogReader {
       maxLatitude: region.geographicBounds?.maxLatitude ?? 90,
       minLongitude: region.geographicBounds?.minLongitude ?? -180,
       maxLongitude: region.geographicBounds?.maxLongitude ?? 180,
-      limit,
+      ...(limit === undefined ? {} : { limit }),
     };
   }
 
@@ -460,7 +460,7 @@ export class FoursquareIcebergCatalog implements FoursquareCatalogReader {
 
   async *streamOptimizedRelevantPlaces(
     region: RegionConfig,
-    maxRecords: number,
+    maxRecords: number | undefined,
     batchSize: number,
   ): AsyncGenerator<readonly FoursquarePlaceRow[]> {
     const instance = await DuckDBInstance.create(":memory:");
@@ -472,7 +472,7 @@ export class FoursquareIcebergCatalog implements FoursquareCatalogReader {
       await attachCatalog(connection, this.token, caBundle.path);
       phase = "table_query";
       const result = await connection.stream(
-        this.optimizedRelevantPlacesSql("limit $limit"),
+        this.optimizedRelevantPlacesSql(maxRecords === undefined ? "" : "limit $limit"),
         this.optimizedRelevantPlacesParameters(region, maxRecords),
       );
       let batch: FoursquarePlaceRow[] = [];

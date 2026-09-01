@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { runFoursquareStage } from "./foursquare-stage-runner.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { metroManilaRegion } from "../../../../data/regions/metro-manila.js";
@@ -11,6 +12,7 @@ import type { RawSourcePlace } from "../types/index.js";
 import { RunDuplicateTracker } from "../validation/duplicate-tracker.js";
 import { normalizeAndValidatePlace } from "../validation/validate-place.js";
 
+/*
 const BATCH_SIZE = 500;
 const IDEMPOTENCY_SUBSET_SIZE = 100;
 
@@ -121,4 +123,5 @@ async function main(): Promise<void> {
   console.log(JSON.stringify({ runId, sourceId, requestedLimit, sourceBatchCount, closedExcluded: 0, firstBatchDurationMs, queryDurationMs, totalPreparationDurationMs: Math.round(performance.now() - started), sourceRowsReturned, stagingRows: stagingRows.length, batchCount: batches.length, artifactDirectory: directory }, null, 2));
 }
 
-main().catch((cause: unknown) => { console.error(cause instanceof Error ? cause.message : "Unknown Foursquare staging error."); process.exitCode = 1; });
+*/
+runFoursquareStage(process.argv.slice(2)).catch((cause: unknown) => { console.error(cause instanceof Error ? cause.message : "Unknown Foursquare staging error."); process.exitCode = 1; });

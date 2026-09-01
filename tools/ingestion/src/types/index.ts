@@ -6,12 +6,26 @@ export interface RegionConfig {
   displayName: string;
   timezone: string;
   currency: string;
+  geographicBounds?: {
+    minLatitude: number;
+    maxLatitude: number;
+    minLongitude: number;
+    maxLongitude: number;
+    provenance: string;
+  };
 }
 
 export interface RawSourcePlace {
   sourcePlaceId?: unknown;
   name?: unknown;
   categorySourceCode?: unknown;
+  categoryMappingHint?: CategoryMappingResult;
+  sourceCategoryClassifications?: readonly {
+    categoryId: string;
+    categoryLabel: string | null;
+    decision: "include" | "exclude" | "review";
+    exploreWiseCategoryCode: string | null;
+  }[];
   countryCode?: unknown;
   region?: unknown;
   city?: unknown;
@@ -24,6 +38,8 @@ export interface RawSourcePlace {
   websiteUrl?: unknown;
   phoneNumber?: unknown;
   sourceUpdatedAt?: unknown;
+  sourceClosedAt?: unknown;
+  sourceQualityFlags?: unknown;
   sourcePayload?: unknown;
 }
 
@@ -49,6 +65,9 @@ export type ValidationErrorCode =
   | "missing_timezone"
   | "invalid_website_url"
   | "invalid_source_updated_at"
+  | "invalid_source_closed_at"
+  | "source_marked_closed"
+  | "source_quality_review"
   | "duplicate_in_run"
   | "unmapped_source_category";
 
@@ -68,6 +87,8 @@ export interface NormalizedStagingPlace {
   sourcePlaceId: string | null;
   sourcePayload: unknown | null;
   sourceUpdatedAt: string | null;
+  sourceClosedAt: string | null;
+  sourceQualityFlags: readonly string[];
   name: string | null;
   categorySourceCode: string | null;
   categoryMapping: CategoryMappingResult | null;

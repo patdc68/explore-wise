@@ -96,3 +96,35 @@ test("unknown categories are explicitly held for review", () => {
   assert.equal(result.validationStatus, "review");
   assert.equal(result.validationErrors[0]?.code, "unmapped_source_category");
 });
+
+test("source-closed places are held for review even with a mapped category", () => {
+  const result = normalizeAndValidatePlace({
+    sourcePlaceId: "closed-place",
+    name: "TEST / FICTIONAL Closed Place",
+    categorySourceCode: "test:cafe",
+    countryCode: "PH",
+    latitude: 14.5,
+    longitude: 121,
+    sourceClosedAt: "2026-07-15",
+  }, context, categoryResolver, new RunDuplicateTracker());
+
+  assert.equal(result.validationStatus, "review");
+  assert.equal(result.sourceClosedAt, "2026-07-15T00:00:00.000Z");
+  assert.equal(result.validationErrors[0]?.code, "source_marked_closed");
+});
+
+test("serious unresolved source quality flags are held for review without rejection", () => {
+  const result = normalizeAndValidatePlace({
+    sourcePlaceId: "flagged-place",
+    name: "TEST / FICTIONAL Flagged Place",
+    categorySourceCode: "test:cafe",
+    countryCode: "PH",
+    latitude: 14.5,
+    longitude: 121,
+    sourceQualityFlags: [" DUPLICATE "],
+  }, context, categoryResolver, new RunDuplicateTracker());
+
+  assert.equal(result.validationStatus, "review");
+  assert.deepEqual(result.sourceQualityFlags, ["duplicate"]);
+  assert.equal(result.validationErrors[0]?.code, "source_quality_review");
+});

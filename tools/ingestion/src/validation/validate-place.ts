@@ -54,6 +54,16 @@ export function normalizeAndValidatePlace(
   const longitude = toFiniteNumber(raw.longitude);
   const websiteUrl = normalizeUrl(raw.websiteUrl);
   const sourceUpdatedAt = normalizeSourceUpdatedAt(raw.sourceUpdatedAt);
+  const sourceClosedAt = normalizeSourceUpdatedAt(raw.sourceClosedAt);
+  const sourceQualityFlags = Array.isArray(raw.sourceQualityFlags)
+    ? raw.sourceQualityFlags
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim().toLocaleLowerCase("und"))
+        .filter((item) => item.length > 0)
+    : [];
+  const reviewQualityFlags = sourceQualityFlags.filter((flag) => (
+    ["closed", "duplicate", "delete", "privatevenue", "inappropriate", "doesnt_exist"].includes(flag)
+  ));
 
   if (!context.ingestionRunId) {
     errors.push(error("missing_ingestion_run", "ingestionRunId", "An ingestion run ID is required."));
@@ -90,6 +100,19 @@ export function normalizeAndValidatePlace(
   if (raw.sourceUpdatedAt !== null && raw.sourceUpdatedAt !== undefined && sourceUpdatedAt === null) {
     errors.push(error("invalid_source_updated_at", "sourceUpdatedAt", "Source update time must be a valid date.", raw.sourceUpdatedAt));
   }
+  if (raw.sourceClosedAt !== null && raw.sourceClosedAt !== undefined && raw.sourceClosedAt !== "" && sourceClosedAt === null) {
+    errors.push(error("invalid_source_closed_at", "sourceClosedAt", "Source closed time must be a valid date.", raw.sourceClosedAt));
+  } else if (sourceClosedAt !== null) {
+    errors.push(error("source_marked_closed", "sourceClosedAt", "The source marks this place as closed.", sourceClosedAt));
+  }
+  if (reviewQualityFlags.length > 0) {
+    errors.push(error(
+      "source_quality_review",
+      "sourceQualityFlags",
+      "The source reports an unresolved quality issue requiring review.",
+      reviewQualityFlags,
+    ));
+  }
 
   const dedupeKey = sourcePlaceId === null
     ? null
@@ -98,7 +121,16 @@ export function normalizeAndValidatePlace(
     errors.push(error("duplicate_in_run", "sourcePlaceId", "This source identity already appeared in the ingestion run.", sourcePlaceId));
   }
 
-  const categoryMapping = categorySourceCode === null ? null : categoryResolver(categorySourceCode);
+  const categoryMappingHint = raw.categoryMappingHint;
+  const categoryMapping = categorySourceCode === null
+    ? null
+    : (
+        categoryMappingHint?.status === "mapped"
+        && categoryMappingHint.sourceCategory === categorySourceCode
+        && categoryMappingHint.exploreWiseCategoryCode !== null
+      )
+      ? categoryMappingHint
+      : categoryResolver(categorySourceCode);
   if (categoryMapping === null || categoryMapping.status !== "mapped") {
     errors.push(error(
       "unmapped_source_category",
@@ -109,10 +141,16 @@ export function normalizeAndValidatePlace(
   }
 
   const hasCategoryReview = errors.some((item) => item.code === "unmapped_source_category");
-  const hasHardFailure = errors.some((item) => item.code !== "unmapped_source_category");
+  const hasClosedReview = errors.some((item) => item.code === "source_marked_closed");
+  const hasSourceQualityReview = errors.some((item) => item.code === "source_quality_review");
+  const hasHardFailure = errors.some((item) => (
+    item.code !== "unmapped_source_category"
+    && item.code !== "source_marked_closed"
+    && item.code !== "source_quality_review"
+  ));
   const validationStatus = hasHardFailure || (hasCategoryReview && context.unknownCategoryPolicy === "reject")
     ? "invalid"
-    : hasCategoryReview
+    : hasCategoryReview || hasClosedReview || hasSourceQualityReview
       ? "review"
       : "valid";
 
@@ -123,6 +161,8 @@ export function normalizeAndValidatePlace(
     sourcePlaceId,
     sourcePayload: raw.sourcePayload ?? null,
     sourceUpdatedAt,
+    sourceClosedAt,
+    sourceQualityFlags,
     name,
     categorySourceCode,
     categoryMapping,

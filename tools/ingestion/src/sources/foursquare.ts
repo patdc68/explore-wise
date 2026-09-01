@@ -1,3 +1,4 @@
+import type { CategoryMappingResult } from "../../../../data/category-mappings/types.js";
 import type { RawSourcePlace, RegionConfig } from "../types/index.js";
 import type { PlaceSourceAdapter, SourceReadOptions } from "./types.js";
 
@@ -29,7 +30,20 @@ export interface FoursquarePlaceRow {
   unresolved_flags?: unknown;
   geom?: unknown;
   bbox?: unknown;
+  __selected_category_id?: unknown;
+  __selected_category_label?: unknown;
+  __explorewise_category_code?: unknown;
+  __mapping_rule_id?: unknown;
+  __diversity_rank?: unknown;
+  __category_classifications?: unknown;
   [field: string]: unknown;
+}
+
+export interface FoursquareSourceCategoryClassification {
+  categoryId: string;
+  categoryLabel: string | null;
+  decision: "include" | "exclude" | "review";
+  exploreWiseCategoryCode: string | null;
 }
 
 export interface FoursquareCatalogReader {
@@ -46,18 +60,57 @@ function firstString(value: unknown): string | undefined {
 
 function serializableSourcePayload(row: FoursquarePlaceRow): Record<string, unknown> {
   return Object.fromEntries(
-    Object.entries(row).filter(([, value]) => value !== undefined),
+    Object.entries(row).filter(([key, value]) => !key.startsWith("__") && value !== undefined),
   );
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function categoryClassifications(value: unknown): readonly FoursquareSourceCategoryClassification[] {
+  let parsed: unknown = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value) as unknown;
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter((item): item is FoursquareSourceCategoryClassification => (
+    typeof item === "object"
+    && item !== null
+    && typeof (item as { categoryId?: unknown }).categoryId === "string"
+    && ["include", "exclude", "review"].includes(
+      String((item as { decision?: unknown }).decision),
+    )
+  ));
 }
 
 export function transformFoursquarePlace(
   row: FoursquarePlaceRow,
   region: RegionConfig,
 ): RawSourcePlace {
+  const selectedCategoryId = optionalString(row.__selected_category_id)
+    ?? firstString(row.fsq_category_ids);
+  const exploreWiseCategoryCode = optionalString(row.__explorewise_category_code);
+  const categoryMappingHint: CategoryMappingResult | undefined = (
+    selectedCategoryId && exploreWiseCategoryCode
+  )
+    ? {
+        status: "mapped",
+        sourceCategory: selectedCategoryId,
+        exploreWiseCategoryCode,
+      }
+    : undefined;
+
   return {
     sourcePlaceId: row.fsq_place_id,
     name: row.name,
-    categorySourceCode: firstString(row.fsq_category_ids),
+    categorySourceCode: selectedCategoryId,
+    ...(categoryMappingHint ? { categoryMappingHint } : {}),
+    sourceCategoryClassifications: categoryClassifications(row.__category_classifications),
     countryCode: row.country,
     region: row.region,
     city: row.locality,
@@ -70,6 +123,8 @@ export function transformFoursquarePlace(
     websiteUrl: row.website,
     phoneNumber: row.tel,
     sourceUpdatedAt: row.date_refreshed,
+    sourceClosedAt: row.date_closed,
+    sourceQualityFlags: row.unresolved_flags,
     sourcePayload: serializableSourcePayload(row),
   };
 }
@@ -89,4 +144,3 @@ export class FoursquareOpenSourcePlacesAdapter implements PlaceSourceAdapter {
     return rows.slice(0, limit).map((row) => transformFoursquarePlace(row, options.region));
   }
 }
-

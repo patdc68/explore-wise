@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { metroManilaRegion } from "../../../data/regions/metro-manila.js";
 import {
+  foursquareCategoryRules,
+  resolveFoursquareCategory,
+} from "../../../data/category-mappings/foursquare.js";
+import {
   classifyFoursquareFailure,
   FoursquareCatalogAccessError,
   sanitizeFoursquareError,
@@ -53,6 +57,7 @@ test("Foursquare adapter maps documented source fields without live access", asy
     sourcePlaceId: "mock-fsq-id",
     name: "TEST / MOCK Place",
     categorySourceCode: "mock-category-id",
+    sourceCategoryClassifications: [],
     countryCode: "PH",
     region: "Metro Manila",
     city: "Mock City",
@@ -65,6 +70,8 @@ test("Foursquare adapter maps documented source fields without live access", asy
     websiteUrl: "https://example.invalid/mock",
     phoneNumber: "+63 2 0000 0000",
     sourceUpdatedAt: "2026-08-01",
+    sourceClosedAt: undefined,
+    sourceQualityFlags: undefined,
     sourcePayload: {
       fsq_place_id: "mock-fsq-id",
       name: "TEST / MOCK Place",
@@ -127,4 +134,38 @@ test("sanitized catalog errors never retain the access token", () => {
   assert.ok(error instanceof FoursquareCatalogAccessError);
   assert.equal(error.message.includes(token), false);
   assert.equal(error.message.includes("[REDACTED]"), true);
+});
+
+test("verified direct IDs remain mapped while ancestry mappings come from the catalog", () => {
+  assert.equal(
+    resolveFoursquareCategory("4d4b7105d754a06374d81259").exploreWiseCategoryCode,
+    "food.restaurant",
+  );
+  assert.equal(
+    resolveFoursquareCategory("4bf58dd8d48988d16d941735").exploreWiseCategoryCode,
+    "food.cafe",
+  );
+  assert.equal(
+    resolveFoursquareCategory("4bf58dd8d48988d1e0931735").exploreWiseCategoryCode,
+    "food.cafe",
+  );
+  assert.equal(resolveFoursquareCategory("unreviewed-category").status, "review");
+});
+
+test("V1 Foursquare rules use unique IDs and explicit include, exclude, and review decisions", () => {
+  const identities = foursquareCategoryRules.map((rule) => `${rule.categoryId}:${rule.precedence}`);
+  assert.equal(new Set(identities).size, identities.length);
+  assert.ok(foursquareCategoryRules.some((rule) => (
+    rule.categoryId === "4bf58dd8d48988d17f941735"
+    && rule.decision === "include"
+    && rule.exploreWiseCategoryCode === "entertainment.cinema"
+  )));
+  assert.ok(foursquareCategoryRules.some((rule) => (
+    rule.categoryId === "4bf58dd8d48988d11f941735"
+    && rule.decision === "exclude"
+  )));
+  assert.ok(foursquareCategoryRules.some((rule) => (
+    rule.categoryId === "4d4b7105d754a06373d81259"
+    && rule.decision === "review"
+  )));
 });

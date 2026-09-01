@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "ingest": "tsx src/cli/index.ts",
+    "inspect:foursquare": "tsx src/cli/foursquare-inspect.ts",
     "probe:foursquare": "tsx src/cli/foursquare-probe.ts",
+    "remap:foursquare": "tsx src/cli/foursquare-remap-artifact.ts",
+    "sample:foursquare": "tsx src/cli/foursquare-sample.ts",
     "test": "tsx --test tests/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

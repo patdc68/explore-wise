@@ -369,6 +369,131 @@ export class FoursquareIcebergCatalog implements FoursquareCatalogReader {
     });
   }
 
+  private optimizedRelevantPlacesSql(limitClause: string): string {
+    const catalog = assertSafeIdentifier(FOURSQUARE_ICEBERG_CATALOG_ALIAS);
+    const schema = assertSafeIdentifier(this.schemaName);
+    const table = assertSafeIdentifier(this.tableName);
+    const rulesSql = categoryRulesSql();
+
+    return `
+        with category_rules (rule_category_id, decision, explorewise_category_code, precedence, match_descendants) as (
+          values ${rulesSql}
+        ), taxonomy_rule_matches as (
+          select c.category_id, c.category_label, r.decision, r.explorewise_category_code, r.precedence, r.rule_category_id,
+            row_number() over (partition by c.category_id order by r.precedence, r.rule_category_id) as rule_rank
+          from ${catalog}.${schema}.categories_os as c
+          join category_rules as r on r.rule_category_id = c.category_id
+            or (r.match_descendants and r.rule_category_id in (
+              c.level1_category_id, c.level2_category_id, c.level3_category_id,
+              c.level4_category_id, c.level5_category_id, c.level6_category_id
+            ))
+        ), taxonomy_decisions as (
+          select category_id, category_label, decision, explorewise_category_code, precedence, rule_category_id
+          from taxonomy_rule_matches where rule_rank = 1
+        ), metro_places as (
+          select
+            fsq_place_id, name, latitude, longitude, address, locality, region, postcode, admin_region,
+            post_town, po_box, country, date_created, date_refreshed, date_closed, tel, website, email,
+            facebook_id, instagram, twitter, fsq_category_ids, fsq_category_labels, placemaker_url,
+            unresolved_flags, geom, bbox
+          from ${catalog}.${schema}.${table}
+          where country = $country and region = $region
+            and latitude between $minLatitude and $maxLatitude
+            and longitude between $minLongitude and $maxLongitude
+            and date_closed is null
+        )
+        select
+          p.*,
+          selected.category_id as __selected_category_id,
+          selected.category_label as __selected_category_label,
+          selected.explorewise_category_code as __explorewise_category_code,
+          selected.rule_category_id as __mapping_rule_id,
+          '[]' as __category_classifications
+          from metro_places as p
+          cross join lateral (
+            select
+              source_category.category_id,
+              d.category_label,
+              d.explorewise_category_code,
+              d.rule_category_id
+            from unnest(p.fsq_category_ids) with ordinality as source_category(category_id, ordinality)
+            join taxonomy_decisions as d
+              on d.category_id = source_category.category_id
+             and d.decision = 'include'
+            order by d.precedence, source_category.ordinality, source_category.category_id
+            limit 1
+          ) as selected
+        ${limitClause}`;
+  }
+
+  private optimizedRelevantPlacesParameters(region: RegionConfig, limit: number): Record<string, string | number> {
+    return {
+      country: region.countryCode,
+      region: region.displayName,
+      minLatitude: region.geographicBounds?.minLatitude ?? -90,
+      maxLatitude: region.geographicBounds?.maxLatitude ?? 90,
+      minLongitude: region.geographicBounds?.minLongitude ?? -180,
+      maxLongitude: region.geographicBounds?.maxLongitude ?? 180,
+      limit,
+    };
+  }
+
+  async explainOptimizedRelevantBatch(region: RegionConfig, limit: number): Promise<readonly Record<string, unknown>[]> {
+    return this.withConnection(async (connection) => {
+      const reader = await connection.runAndReadAll(
+        `explain ${this.optimizedRelevantPlacesSql("limit $limit")}`,
+        this.optimizedRelevantPlacesParameters(region, limit),
+      );
+      return reader.getRowObjectsJson();
+    });
+  }
+
+  async readOptimizedRelevantBatch(region: RegionConfig, limit: number): Promise<readonly FoursquarePlaceRow[]> {
+    return this.withConnection(async (connection) => {
+      const reader = await connection.runAndReadAll(
+        this.optimizedRelevantPlacesSql("limit $limit"),
+        this.optimizedRelevantPlacesParameters(region, limit),
+      );
+      return reader.getRowObjectsJson() as FoursquarePlaceRow[];
+    });
+  }
+
+  async *streamOptimizedRelevantPlaces(
+    region: RegionConfig,
+    maxRecords: number,
+    batchSize: number,
+  ): AsyncGenerator<readonly FoursquarePlaceRow[]> {
+    const instance = await DuckDBInstance.create(":memory:");
+    const connection = await instance.connect();
+    const caBundle = await createTrustedCaBundle();
+    let phase: FoursquareFailurePhase = "duckdb_setup";
+    try {
+      phase = "catalog_attach";
+      await attachCatalog(connection, this.token, caBundle.path);
+      phase = "table_query";
+      const result = await connection.stream(
+        this.optimizedRelevantPlacesSql("limit $limit"),
+        this.optimizedRelevantPlacesParameters(region, maxRecords),
+      );
+      let batch: FoursquarePlaceRow[] = [];
+      for await (const rows of result.yieldRowObjectJson()) {
+        for (const row of rows) {
+          batch.push(row as FoursquarePlaceRow);
+          if (batch.length === batchSize) {
+            yield batch;
+            batch = [];
+          }
+        }
+      }
+      if (batch.length > 0) yield batch;
+    } catch (cause) {
+      throw sanitizeFoursquareError(cause, this.token, phase);
+    } finally {
+      connection.closeSync();
+      instance.closeSync();
+      await rm(caBundle.directory, { recursive: true, force: true });
+    }
+  }
   private async withConnection<T>(operation: (connection: DuckDBConnection) => Promise<T>): Promise<T> {
     const instance = await DuckDBInstance.create(":memory:");
     const connection = await instance.connect();

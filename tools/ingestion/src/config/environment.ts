@@ -10,6 +10,9 @@ export function loadLocalEnvironment(): void {
   try {
     loadEnvFile(INGESTION_LOCAL_ENV_PATH);
   } catch (cause) {
+    // Operator-provided environment is an equivalent private credential source
+    // for compiled/bundled execution where import.meta.url differs from src/.
+    if (process.env.FOURSQUARE_ACCESS_TOKEN?.trim()) return;
     throw new FoursquareAuthenticationError(
       "Foursquare access token is missing. Add FOURSQUARE_ACCESS_TOKEN to tools/ingestion/.env.local.",
       { cause: cause instanceof Error ? cause : undefined },

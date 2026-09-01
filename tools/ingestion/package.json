@@ -9,6 +9,7 @@
     "probe:foursquare": "tsx src/cli/foursquare-probe.ts",
     "remap:foursquare": "tsx src/cli/foursquare-remap-artifact.ts",
     "sample:foursquare": "tsx src/cli/foursquare-sample.ts",
+    "stage:foursquare": "tsx src/cli/foursquare-stage.ts",
     "test": "tsx --test tests/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

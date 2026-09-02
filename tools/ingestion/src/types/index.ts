@@ -1,4 +1,8 @@
 import type { CategoryMappingResult } from "../../../../data/category-mappings/types.js";
+import type {
+  FoursquareCategoryClassification,
+  FoursquarePlaceTaxonomyResult,
+} from "../../../../data/category-mappings/foursquare.js";
 
 export interface RegionConfig {
   regionCode: string;
@@ -20,12 +24,8 @@ export interface RawSourcePlace {
   name?: unknown;
   categorySourceCode?: unknown;
   categoryMappingHint?: CategoryMappingResult;
-  sourceCategoryClassifications?: readonly {
-    categoryId: string;
-    categoryLabel: string | null;
-    decision: "include" | "exclude" | "review";
-    exploreWiseCategoryCode: string | null;
-  }[];
+  sourceCategoryClassifications?: readonly FoursquareCategoryClassification[];
+  sourceTaxonomyDecision?: FoursquarePlaceTaxonomyResult;
   countryCode?: unknown;
   region?: unknown;
   city?: unknown;
@@ -68,6 +68,7 @@ export type ValidationErrorCode =
   | "invalid_source_closed_at"
   | "source_marked_closed"
   | "source_quality_review"
+  | "source_taxonomy_review"
   | "duplicate_in_run"
   | "unmapped_source_category";
 
@@ -92,6 +93,7 @@ export interface NormalizedStagingPlace {
   name: string | null;
   categorySourceCode: string | null;
   categoryMapping: CategoryMappingResult | null;
+  sourceTaxonomyDecision: FoursquarePlaceTaxonomyResult | null;
   countryCode: string | null;
   region: string | null;
   city: string | null;

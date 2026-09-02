@@ -307,8 +307,11 @@ export class FoursquareIcebergCatalog implements FoursquareCatalogReader {
             to_json(list(struct_pack(
               categoryId := source_category.category_id,
               categoryLabel := c.category_label,
+              known := c.category_id is not null,
               decision := coalesce(d.decision, 'review'),
-              exploreWiseCategoryCode := d.explorewise_category_code
+              exploreWiseCategoryCode := d.explorewise_category_code,
+              precedence := d.precedence,
+              matchedRuleCategoryId := d.rule_category_id
             ) order by source_category.ordinality)) as classifications
           from chosen_places as p
           cross join unnest(p.fsq_category_ids) with ordinality
@@ -402,27 +405,35 @@ export class FoursquareIcebergCatalog implements FoursquareCatalogReader {
             and longitude between $minLongitude and $maxLongitude
             and date_closed is null
         )
+        , category_classifications as (
+          select
+            p.fsq_place_id,
+            to_json(list(struct_pack(
+              categoryId := source_category.category_id,
+              categoryLabel := c.category_label,
+              known := c.category_id is not null,
+              decision := coalesce(d.decision, 'review'),
+              exploreWiseCategoryCode := d.explorewise_category_code,
+              precedence := d.precedence,
+              matchedRuleCategoryId := d.rule_category_id
+            ) order by source_category.ordinality)) as classifications
+          from metro_places as p
+          cross join unnest(p.fsq_category_ids) with ordinality as source_category(category_id, ordinality)
+          left join ${catalog}.${schema}.categories_os as c
+            on c.category_id = source_category.category_id
+          left join taxonomy_decisions as d
+            on d.category_id = source_category.category_id
+          group by p.fsq_place_id
+        )
         select
           p.*,
-          selected.category_id as __selected_category_id,
-          selected.category_label as __selected_category_label,
-          selected.explorewise_category_code as __explorewise_category_code,
-          selected.rule_category_id as __mapping_rule_id,
-          '[]' as __category_classifications
-          from metro_places as p
-          cross join lateral (
-            select
-              source_category.category_id,
-              d.category_label,
-              d.explorewise_category_code,
-              d.rule_category_id
-            from unnest(p.fsq_category_ids) with ordinality as source_category(category_id, ordinality)
-            join taxonomy_decisions as d
-              on d.category_id = source_category.category_id
-             and d.decision = 'include'
-            order by d.precedence, source_category.ordinality, source_category.category_id
-            limit 1
-          ) as selected
+          null as __selected_category_id,
+          null as __selected_category_label,
+          null as __explorewise_category_code,
+          null as __mapping_rule_id,
+          classifications.classifications as __category_classifications
+        from metro_places as p
+        left join category_classifications as classifications using (fsq_place_id)
         ${limitClause}`;
   }
 

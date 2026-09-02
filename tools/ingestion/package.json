@@ -12,6 +12,9 @@
     "stage:foursquare": "tsx src/cli/foursquare-stage.ts",
     "load:foursquare": "tsx src/cli/foursquare-load.ts",
     "promote:foursquare": "tsx src/cli/foursquare-promote.ts",
+    "audit:foursquare-taxonomy": "tsx src/cli/foursquare-production-taxonomy-audit.ts",
+    "report:foursquare-remediation": "tsx src/cli/foursquare-production-remediation-report.ts",
+    "sql:foursquare-remediation": "tsx src/cli/foursquare-production-remediation-sql.ts",
     "test": "tsx --test tests/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

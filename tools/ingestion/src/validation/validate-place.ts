@@ -139,10 +139,19 @@ export function normalizeAndValidatePlace(
       categorySourceCode,
     ));
   }
+  if (raw.sourceTaxonomyDecision !== undefined && raw.sourceTaxonomyDecision.decision !== "include") {
+    errors.push(error(
+      "source_taxonomy_review",
+      "sourceCategoryClassifications",
+      `Foursquare taxonomy decision is ${raw.sourceTaxonomyDecision.decision}: ${raw.sourceTaxonomyDecision.reason}.`,
+      raw.sourceTaxonomyDecision.evidence,
+    ));
+  }
 
   const hasCategoryReview = errors.some((item) => item.code === "unmapped_source_category");
   const hasClosedReview = errors.some((item) => item.code === "source_marked_closed");
   const hasSourceQualityReview = errors.some((item) => item.code === "source_quality_review");
+  const hasTaxonomyReview = errors.some((item) => item.code === "source_taxonomy_review");
   const hasHardFailure = errors.some((item) => (
     item.code !== "unmapped_source_category"
     && item.code !== "source_marked_closed"
@@ -150,7 +159,7 @@ export function normalizeAndValidatePlace(
   ));
   const validationStatus = hasHardFailure || (hasCategoryReview && context.unknownCategoryPolicy === "reject")
     ? "invalid"
-    : hasCategoryReview || hasClosedReview || hasSourceQualityReview
+    : hasCategoryReview || hasClosedReview || hasSourceQualityReview || hasTaxonomyReview
       ? "review"
       : "valid";
 
@@ -166,6 +175,7 @@ export function normalizeAndValidatePlace(
     name,
     categorySourceCode,
     categoryMapping,
+    sourceTaxonomyDecision: raw.sourceTaxonomyDecision ?? null,
     countryCode,
     region: normalizeOptionalText(raw.region),
     city: normalizeOptionalText(raw.city),

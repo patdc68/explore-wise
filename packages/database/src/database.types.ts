@@ -392,6 +392,59 @@ export type Database = {
           },
         ]
       }
+      ew_place_discovery_decisions: {
+        Row: {
+          created_at: string
+          decision: string
+          decision_reason: string
+          evidence: Json
+          id: string
+          place_id: string | null
+          reviewed_at: string | null
+          rule_version: string
+          source: string
+          source_place_id: string
+          taxonomy_version: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          decision: string
+          decision_reason: string
+          evidence?: Json
+          id?: string
+          place_id?: string | null
+          reviewed_at?: string | null
+          rule_version: string
+          source: string
+          source_place_id: string
+          taxonomy_version?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          decision?: string
+          decision_reason?: string
+          evidence?: Json
+          id?: string
+          place_id?: string | null
+          reviewed_at?: string | null
+          rule_version?: string
+          source?: string
+          source_place_id?: string
+          taxonomy_version?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ew_place_discovery_decisions_place_id_fkey"
+            columns: ["place_id"]
+            isOneToOne: false
+            referencedRelation: "ew_places"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ew_places: {
         Row: {
           address: string | null

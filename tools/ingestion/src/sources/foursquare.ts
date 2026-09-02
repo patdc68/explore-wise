@@ -1,4 +1,9 @@
 import type { CategoryMappingResult } from "../../../../data/category-mappings/types.js";
+import {
+  evaluateFoursquarePlaceTaxonomy,
+  type FoursquareCategoryClassification,
+  type FoursquarePlaceTaxonomyResult,
+} from "../../../../data/category-mappings/foursquare.js";
 import type { RawSourcePlace, RegionConfig } from "../types/index.js";
 import type { PlaceSourceAdapter, SourceReadOptions } from "./types.js";
 
@@ -36,15 +41,11 @@ export interface FoursquarePlaceRow {
   __mapping_rule_id?: unknown;
   __diversity_rank?: unknown;
   __category_classifications?: unknown;
+  __taxonomy_decision?: unknown;
   [field: string]: unknown;
 }
 
-export interface FoursquareSourceCategoryClassification {
-  categoryId: string;
-  categoryLabel: string | null;
-  decision: "include" | "exclude" | "review";
-  exploreWiseCategoryCode: string | null;
-}
+export type FoursquareSourceCategoryClassification = FoursquareCategoryClassification;
 
 export interface FoursquareCatalogReader {
   readPlaces(region: RegionConfig, limit: number): Promise<readonly FoursquarePlaceRow[]>;
@@ -78,14 +79,27 @@ function categoryClassifications(value: unknown): readonly FoursquareSourceCateg
     }
   }
   if (!Array.isArray(parsed)) return [];
-  return parsed.filter((item): item is FoursquareSourceCategoryClassification => (
-    typeof item === "object"
-    && item !== null
-    && typeof (item as { categoryId?: unknown }).categoryId === "string"
-    && ["include", "exclude", "review"].includes(
-      String((item as { decision?: unknown }).decision),
-    )
-  ));
+  return parsed.flatMap((item): FoursquareSourceCategoryClassification[] => {
+    if (
+      typeof item !== "object"
+      || item === null
+      || typeof (item as { categoryId?: unknown }).categoryId !== "string"
+      || !["include", "exclude", "review"].includes(String((item as { decision?: unknown }).decision))
+    ) return [];
+    const stored = item as Partial<FoursquareSourceCategoryClassification>;
+    // Version-2 sample artifacts did not retain ancestry metadata. They remain
+    // usable as known classifications, while new catalog rows carry the full
+    // stable-ID evidence used by the current decision engine.
+    return [{
+      categoryId: stored.categoryId as string,
+      categoryLabel: typeof stored.categoryLabel === "string" ? stored.categoryLabel : null,
+      known: typeof stored.known === "boolean" ? stored.known : true,
+      decision: stored.decision as FoursquareSourceCategoryClassification["decision"],
+      exploreWiseCategoryCode: typeof stored.exploreWiseCategoryCode === "string" ? stored.exploreWiseCategoryCode : null,
+      precedence: typeof stored.precedence === "number" ? stored.precedence : null,
+      matchedRuleCategoryId: typeof stored.matchedRuleCategoryId === "string" ? stored.matchedRuleCategoryId : null,
+    }];
+  });
 }
 
 export function transformFoursquarePlace(
@@ -94,13 +108,21 @@ export function transformFoursquarePlace(
 ): RawSourcePlace {
   const selectedCategoryId = optionalString(row.__selected_category_id)
     ?? firstString(row.fsq_category_ids);
-  const exploreWiseCategoryCode = optionalString(row.__explorewise_category_code);
+  const classifications = categoryClassifications(row.__category_classifications);
+  const sourceTaxonomyDecision: FoursquarePlaceTaxonomyResult = evaluateFoursquarePlaceTaxonomy({
+    name: optionalString(row.name) ?? null,
+    categories: classifications,
+  });
+  const selectedDecisionCategory = sourceTaxonomyDecision.selectedCategory;
+  const mappedCategoryId = selectedDecisionCategory?.categoryId ?? selectedCategoryId;
+  const exploreWiseCategoryCode = selectedDecisionCategory?.exploreWiseCategoryCode
+    ?? optionalString(row.__explorewise_category_code);
   const categoryMappingHint: CategoryMappingResult | undefined = (
-    selectedCategoryId && exploreWiseCategoryCode
+    sourceTaxonomyDecision.decision === "include" && mappedCategoryId && exploreWiseCategoryCode
   )
     ? {
         status: "mapped",
-        sourceCategory: selectedCategoryId,
+        sourceCategory: mappedCategoryId,
         exploreWiseCategoryCode,
       }
     : undefined;
@@ -108,9 +130,10 @@ export function transformFoursquarePlace(
   return {
     sourcePlaceId: row.fsq_place_id,
     name: row.name,
-    categorySourceCode: selectedCategoryId,
+    categorySourceCode: mappedCategoryId,
     ...(categoryMappingHint ? { categoryMappingHint } : {}),
-    sourceCategoryClassifications: categoryClassifications(row.__category_classifications),
+    sourceCategoryClassifications: classifications,
+    sourceTaxonomyDecision,
     countryCode: row.country,
     region: row.region,
     city: row.locality,

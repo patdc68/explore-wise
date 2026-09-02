@@ -58,6 +58,13 @@ test("Foursquare adapter maps documented source fields without live access", asy
     name: "TEST / MOCK Place",
     categorySourceCode: "mock-category-id",
     sourceCategoryClassifications: [],
+    sourceTaxonomyDecision: {
+      decision: "review",
+      reason: "no_source_categories",
+      ruleVersion: "foursquare-taxonomy-v2.0.0",
+      selectedCategory: null,
+      evidence: { categories: [], contextualNameGuards: [] },
+    },
     countryCode: "PH",
     region: "Metro Manila",
     city: "Mock City",

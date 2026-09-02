@@ -12,6 +12,8 @@ test("promotion eligibility uses persisted category snapshots and excludes revie
   assert.equal(classifyPersistedPromotion({ ...mapped, validationStatus: "invalid" }), "excluded");
   assert.equal(classifyPersistedPromotion({ ...mapped, unresolvedFlags: ["future_flag"] }), "review");
   assert.equal(classifyPersistedPromotion({ ...mapped, unresolvedFlags: ["privatevenue"] }), "excluded");
+  assert.equal(classifyPersistedPromotion(mapped, "review"), "review");
+  assert.equal(classifyPersistedPromotion(mapped, "excluded"), "excluded");
   assert.deepEqual(normalizePersistedFlags([" Duplicate ", "duplicate"]), ["duplicate"]);
 });
 
@@ -21,6 +23,10 @@ test("promotion source identity updates only a non-stale source record", () => {
   assert.equal(classifySourceUpdate("2026-02-01T00:00:00Z", null), "unchanged");
   assert.match(PROMOTE_STAGED_PLACE_SQL, /st_makepoint\(\$10, \$11\)/u);
   assert.match(PROMOTE_STAGED_PLACE_SQL, /on conflict \(source, source_place_id\)/u);
+  assert.match(PROMOTE_STAGED_PLACE_SQL, /ew_place_discovery_decisions/u);
+  assert.match(PROMOTE_STAGED_PLACE_SQL, /decision in \('review', 'excluded'\)/u);
+  assert.match(PROMOTE_STAGED_PLACE_SQL, /decision\.source = \$1/u);
+  assert.match(PROMOTE_STAGED_PLACE_SQL, /decision\.source_place_id = \$2/u);
 });
 
 test("load reporting distinguishes an already-completed batch from this invocation's writes", () => {

@@ -68,6 +68,7 @@ export interface FoursquareStagingDatabaseRow {
   source_updated_at: string | null;
   name: string | null;
   category_source_code: string | null;
+  mapped_category_code: string | null;
   country_code: string | null;
   region: string | null;
   city: string | null;
@@ -292,6 +293,9 @@ export function toFoursquareStagingDatabaseRow(
     source_updated_at: record.sourceUpdatedAt,
     name: record.name,
     category_source_code: record.categorySourceCode,
+    mapped_category_code: record.categoryMapping?.status === "mapped"
+      ? record.categoryMapping.exploreWiseCategoryCode
+      : null,
     country_code: record.countryCode,
     region: record.region,
     city: record.city,

@@ -205,6 +205,7 @@ export type Database = {
           ingestion_run_id: string
           latitude: number | null
           longitude: number | null
+          mapped_category_code: string | null
           name: string | null
           normalized_name: string | null
           phone_number: string | null
@@ -232,6 +233,7 @@ export type Database = {
           ingestion_run_id: string
           latitude?: number | null
           longitude?: number | null
+          mapped_category_code?: string | null
           name?: string | null
           normalized_name?: string | null
           phone_number?: string | null
@@ -259,6 +261,7 @@ export type Database = {
           ingestion_run_id?: string
           latitude?: number | null
           longitude?: number | null
+          mapped_category_code?: string | null
           name?: string | null
           normalized_name?: string | null
           phone_number?: string | null
@@ -274,6 +277,13 @@ export type Database = {
           website_url?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "ew_place_import_staging_mapped_category_code_fkey"
+            columns: ["mapped_category_code"]
+            isOneToOne: false
+            referencedRelation: "ew_categories"
+            referencedColumns: ["code"]
+          },
           {
             foreignKeyName: "ew_place_import_staging_run_source_fkey"
             columns: ["ingestion_run_id", "source_id"]

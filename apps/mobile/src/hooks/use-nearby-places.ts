@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { discoveryErrorMessage } from '@/lib/discovery-errors';
 import {
   categoryCodesFromKey,
   fetchNearbyPlaces,
@@ -48,7 +49,7 @@ export function useNearbyPlaces({
     } catch (requestError) {
       if (version === requestVersion.current) {
         setPlaces([]);
-        setError(requestError instanceof Error ? requestError.message : 'Nearby places could not load.');
+        setError(discoveryErrorMessage(requestError, 'nearby places'));
       }
     } finally {
       if (version === requestVersion.current) setIsLoading(false);

@@ -96,7 +96,7 @@ export default function ExploreScreen() {
             </View>
             {categoryError ? (
               <ThemedText type="small" themeColor="textSecondary">
-                Categories are unavailable. <ThemedText type="linkPrimary" onPress={() => void refreshCategories()}>Try again</ThemedText>
+                {categoryError} <ThemedText type="linkPrimary" onPress={() => void refreshCategories()}>Try again</ThemedText>
               </ThemedText>
             ) : null}
           </DiscoverySection>

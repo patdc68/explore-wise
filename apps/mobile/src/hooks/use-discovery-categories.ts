@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import { discoveryErrorMessage } from '@/lib/discovery-errors';
 import { fetchDiscoveryCategories, type DiscoveryCategory } from '@/services/places';
 
 export function useDiscoveryCategories() {
@@ -13,7 +14,7 @@ export function useDiscoveryCategories() {
     try {
       setCategories(await fetchDiscoveryCategories());
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Categories could not load.');
+      setError(discoveryErrorMessage(requestError, 'categories'));
     } finally {
       setIsLoading(false);
     }

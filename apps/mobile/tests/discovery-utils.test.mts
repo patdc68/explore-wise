@@ -8,6 +8,20 @@ import {
   formatDistance,
   stableCategoryCodes,
 } from '../src/services/discovery-utils.ts';
+import { normalizeExploreWiseProjectUrl, normalizePublishableKey } from '../src/lib/supabase-config.ts';
+
+test('accepts the production project URL with harmless whitespace or a trailing slash', () => {
+  assert.equal(
+    normalizeExploreWiseProjectUrl(' https://wkgvnpamnhesmmbyikml.supabase.co/ '),
+    'https://wkgvnpamnhesmmbyikml.supabase.co',
+  );
+  assert.equal(normalizeExploreWiseProjectUrl('https://another-project.supabase.co'), undefined);
+});
+
+test('accepts current publishable keys without requiring a legacy anon JWT', () => {
+  assert.equal(normalizePublishableKey(' sb_publishable_example-key_123 '), 'sb_publishable_example-key_123');
+  assert.equal(normalizePublishableKey('sb_secret_example-key_123'), undefined);
+});
 
 test('formats nearby distances for people, not database values', () => {
   assert.equal(formatDistance(120), '120 m');

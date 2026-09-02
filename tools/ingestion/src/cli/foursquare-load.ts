@@ -3,6 +3,7 @@ import { loadEnvFile } from "node:process";
 import { fileURLToPath } from "node:url";
 import type { Client } from "pg";
 import { connectSupabaseLoaderDatabase } from "../database/supabase-loader-client.js";
+import { summarizeLoadProgress } from "../reporting/load-progress.js";
 
 const SOURCE_ID = "71aad752-1586-459f-9540-7f7c81c12300";
 const EXPECTED_RECORDS = 29_018;
@@ -153,7 +154,7 @@ export async function runFoursquareLoad(args: readonly string[]): Promise<void> 
     state.completedBatches.push(batch); state.completedBatches.sort((a, b) => a - b); await saveState(state); applied.push(batch);
   }
   await reconcileRun(runId, report, database);
-  console.log(JSON.stringify({ runId, batchesDiscovered: EXPECTED_BATCHES, applied, skipped, failed: [], durationMs: Math.round(performance.now() - started) }, null, 2));
+  console.log(JSON.stringify({ runId, batchesDiscovered: EXPECTED_BATCHES, ...summarizeLoadProgress(state.completedBatches, applied), failed: [], durationMs: Math.round(performance.now() - started) }, null, 2));
   } finally {
     await database.end();
   }

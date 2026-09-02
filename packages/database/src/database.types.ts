@@ -61,6 +61,33 @@ export type Database = {
           },
         ]
       }
+      ew_chains: {
+        Row: {
+          code: string
+          country_code: string | null
+          created_at: string
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          country_code?: string | null
+          created_at?: string
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          country_code?: string | null
+          created_at?: string
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ew_data_sources: {
         Row: {
           attribution_text: string | null
@@ -116,7 +143,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
-          place_id?: string
+          place_id?: string | null
           user_id?: string
         }
         Relationships: [
@@ -187,6 +214,57 @@ export type Database = {
             columns: ["source_id"]
             isOneToOne: false
             referencedRelation: "ew_data_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ew_place_chain_memberships: {
+        Row: {
+          chain_id: string
+          created_at: string
+          link_source: string
+          place_id: string
+          pricing_profile_applicable: boolean
+          source_reference_metadata: Json
+          source_reference_url: string | null
+          updated_at: string
+          verified_at: string | null
+        }
+        Insert: {
+          chain_id: string
+          created_at?: string
+          link_source: string
+          place_id: string
+          pricing_profile_applicable?: boolean
+          source_reference_metadata?: Json
+          source_reference_url?: string | null
+          updated_at?: string
+          verified_at?: string | null
+        }
+        Update: {
+          chain_id?: string
+          created_at?: string
+          link_source?: string
+          place_id?: string
+          pricing_profile_applicable?: boolean
+          source_reference_metadata?: Json
+          source_reference_url?: string | null
+          updated_at?: string
+          verified_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ew_place_chain_memberships_chain_id_fkey"
+            columns: ["chain_id"]
+            isOneToOne: false
+            referencedRelation: "ew_chains"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ew_place_chain_memberships_place_id_fkey"
+            columns: ["place_id"]
+            isOneToOne: true
+            referencedRelation: "ew_places"
             referencedColumns: ["id"]
           },
         ]
@@ -303,6 +381,8 @@ export type Database = {
       ew_place_prices: {
         Row: {
           average_per_person_minor: number | null
+          chain_id: string | null
+          confidence_level: string
           confidence_score: number | null
           created_at: string
           currency_code: string
@@ -310,12 +390,23 @@ export type Database = {
           last_verified_at: string | null
           max_amount_minor: number | null
           min_amount_minor: number | null
-          place_id: string
+          place_id: string | null
+          price_precision: string
+          pricing_source: string
+          pricing_status: string
+          pricing_unit: string
           sample_count: number
+          source_reference_id: string | null
+          source_reference_metadata: Json
+          source_reference_url: string | null
           updated_at: string
+          valid_from: string | null
+          valid_until: string | null
         }
         Insert: {
           average_per_person_minor?: number | null
+          chain_id?: string | null
+          confidence_level?: string
           confidence_score?: number | null
           created_at?: string
           currency_code: string
@@ -323,12 +414,23 @@ export type Database = {
           last_verified_at?: string | null
           max_amount_minor?: number | null
           min_amount_minor?: number | null
-          place_id: string
+          place_id?: string | null
+          price_precision?: string
+          pricing_source?: string
+          pricing_status?: string
+          pricing_unit?: string
           sample_count?: number
+          source_reference_id?: string | null
+          source_reference_metadata?: Json
+          source_reference_url?: string | null
           updated_at?: string
+          valid_from?: string | null
+          valid_until?: string | null
         }
         Update: {
           average_per_person_minor?: number | null
+          chain_id?: string | null
+          confidence_level?: string
           confidence_score?: number | null
           created_at?: string
           currency_code?: string
@@ -337,10 +439,26 @@ export type Database = {
           max_amount_minor?: number | null
           min_amount_minor?: number | null
           place_id?: string
+          price_precision?: string
+          pricing_source?: string
+          pricing_status?: string
+          pricing_unit?: string
           sample_count?: number
+          source_reference_id?: string | null
+          source_reference_metadata?: Json
+          source_reference_url?: string | null
           updated_at?: string
+          valid_from?: string | null
+          valid_until?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "ew_place_prices_chain_id_fkey"
+            columns: ["chain_id"]
+            isOneToOne: false
+            referencedRelation: "ew_chains"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "ew_place_prices_place_id_fkey"
             columns: ["place_id"]

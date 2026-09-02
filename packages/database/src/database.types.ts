@@ -564,7 +564,30 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      ew_nearby_places: {
+        Args: {
+          p_category_codes?: string[]
+          p_latitude: number
+          p_longitude: number
+          p_radius_meters?: number
+          p_result_limit?: number
+        }
+        Returns: {
+          address: string
+          category_code: string
+          category_name: string
+          city: string
+          country_code: string
+          distance_meters: number
+          latitude: number
+          longitude: number
+          name: string
+          phone_number: string
+          place_id: string
+          region: string
+          website_url: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

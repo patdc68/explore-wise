@@ -10,11 +10,14 @@
     "remap:foursquare": "tsx src/cli/foursquare-remap-artifact.ts",
     "sample:foursquare": "tsx src/cli/foursquare-sample.ts",
     "stage:foursquare": "tsx src/cli/foursquare-stage.ts",
+    "load:foursquare": "tsx src/cli/foursquare-load.ts",
     "test": "tsx --test tests/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@duckdb/node-api": "1.5.5-r.4"
+    "@duckdb/node-api": "1.5.5-r.4",
+    "@types/pg": "8.15.5",
+    "pg": "8.16.3"
   },
   "devDependencies": {
     "@types/node": "26.4.0",

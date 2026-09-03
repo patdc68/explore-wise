@@ -15,6 +15,7 @@
     "audit:foursquare-taxonomy": "tsx src/cli/foursquare-production-taxonomy-audit.ts",
     "report:foursquare-remediation": "tsx src/cli/foursquare-production-remediation-report.ts",
     "sql:foursquare-remediation": "tsx src/cli/foursquare-production-remediation-sql.ts",
+    "import:price-pilot": "tsx src/cli/price-pilot-import.ts",
     "test": "tsx --test tests/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

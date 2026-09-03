@@ -16,6 +16,7 @@
     "report:foursquare-remediation": "tsx src/cli/foursquare-production-remediation-report.ts",
     "sql:foursquare-remediation": "tsx src/cli/foursquare-production-remediation-sql.ts",
     "import:price-pilot": "tsx src/cli/price-pilot-import.ts",
+    "report:chain-pricing-pilot": "tsx src/cli/chain-pricing-pilot.ts",
     "test": "tsx --test tests/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

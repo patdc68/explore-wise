@@ -1,4 +1,4 @@
-export const IDENTITY_STATUSES = ["CONFIRMED_CHAIN", "LIKELY_BUT_UNCONFIRMED", "REJECTED"] as const;
+export const IDENTITY_STATUSES = ["CONFIRMED_CHAIN", "UNRESOLVED", "REJECTED"] as const;
 export type IdentityStatus = (typeof IDENTITY_STATUSES)[number];
 
 export type ChainIdentityRule = Readonly<{
@@ -6,12 +6,21 @@ export type ChainIdentityRule = Readonly<{
   expectedHosts: readonly string[];
 }>;
 
-export const PILOT_CHAIN_IDENTITY_RULES: readonly ChainIdentityRule[] = [
+/** Historical file name; these rules identify brands of any location count. */
+export const PILOT_BRAND_IDENTITY_RULES: readonly ChainIdentityRule[] = [
   { canonicalName: "Jollibee", expectedHosts: ["jollibee.com.ph", "www.jollibee.com.ph"] },
   { canonicalName: "McDonald's", expectedHosts: ["mcdonalds.com.ph", "www.mcdonalds.com.ph"] },
   { canonicalName: "KFC", expectedHosts: ["kfc.com.ph", "www.kfc.com.ph", "stores.kfc.com.ph"] },
   { canonicalName: "Starbucks", expectedHosts: ["starbucks.ph", "www.starbucks.ph"] },
-  { canonicalName: "SM Cinema", expectedHosts: ["smcinema.com", "www.smcinema.com"] },
+  { canonicalName: "Chowking", expectedHosts: ["chowking.ph", "www.chowking.ph", "chowkingdelivery.com", "www.chowkingdelivery.com", "order.chowking.ph"] },
+  { canonicalName: "Mang Inasal", expectedHosts: ["manginasal.ph", "www.manginasal.ph", "order.manginasal.ph", "stores.jfc.com.ph"] },
+  { canonicalName: "Pickup Coffee", expectedHosts: ["pickup-coffee.com", "www.pickup-coffee.com"] },
+  { canonicalName: "ZUS Coffee", expectedHosts: ["zuscoffee.ph", "www.zuscoffee.ph"] },
+  { canonicalName: "Macao Imperial Tea", expectedHosts: ["macaoimperialtea.com", "www.macaoimperialtea.com"] },
+  { canonicalName: "Chatime", expectedHosts: ["chatime.com.ph", "www.chatime.com.ph"] },
+  { canonicalName: "Serenitea", expectedHosts: ["serenitea.info", "www.serenitea.info", "serenitea.ph", "www.serenitea.ph"] },
+  { canonicalName: "CoCo Fresh Tea & Juice", expectedHosts: ["cocobubbletea.com", "www.cocobubbletea.com"] },
+  { canonicalName: "Army Navy", expectedHosts: ["armynavy.com.ph", "www.armynavy.com.ph"] },
 ];
 
 function hostname(value: string | null | undefined): string | null {
@@ -34,7 +43,7 @@ export function classifyChainIdentity(input: Readonly<{
   sourceWebsiteUrl: string | null;
 }>): Readonly<{ status: IdentityStatus; host: string | null; reason: string }> {
   const host = hostname(input.sourceWebsiteUrl);
-  if (!host) return { status: "LIKELY_BUT_UNCONFIRMED", host: null, reason: "Name alone has no stable chain identity evidence." };
+  if (!host) return { status: "UNRESOLVED", host: null, reason: "Name alone has no stable chain identity evidence." };
   if (input.rule.expectedHosts.includes(host)) {
     return { status: "CONFIRMED_CHAIN", host, reason: "Retained source record links this branch to the expected official merchant domain." };
   }

@@ -8,20 +8,20 @@ const casaCandidate = { placeId: casaPlaceId, outcome: "verified" as const, reas
 const price = {
   recordId: "casa-manila-regular", target: { placeId: casaPlaceId }, currencyCode: "PHP", minAmountMinor: 7_500, maxAmountMinor: 7_500,
   pricingStatus: "paid" as const, pricingUnit: "admission" as const, pricingSource: "official_website" as const,
-  pricePrecision: "exact" as const, confidenceLevel: "VERIFIED" as const, sourceUrl: "https://example.test/casa", sourceType: "official_website",
+  pricePrecision: "exact" as const, pricingBasis: "branch_verified" as const, pricingChannel: "dine_in" as const, confidenceLevel: "VERIFIED" as const, sourceUrl: "https://example.test/casa", sourceType: "official_website",
   retrievedAt: "2026-09-03T00:00:00.000Z", applicabilityScope: "PLACE_LEVEL_PRICE" as const, applicabilityNotes: "Regular admission.", evidenceNotes: "Official evidence.",
 };
 const oceanEvidence: PilotUnresolvedPriceEvidence = {
   placeId: oceanPlaceId, reasonCode: "PRODUCT_VARIANT_NOT_REPRESENTABLE", applicabilityScope: "MULTI_VENUE_PRODUCT", productName: "Ocean to Jungle, One Pass",
   currencyCode: "PHP", minAmountMinor: 95_000, maxAmountMinor: 95_000, pricingStatus: "paid", pricingUnit: "admission", pricingSource: "official_website",
-  pricePrecision: "exact", confidenceLevel: "VERIFIED", sourceUrl: "https://example.test/ocean", sourceType: "official_website", sourceReferenceId: "ocean-to-jungle",
+  pricePrecision: "exact", pricingBasis: "branch_verified", pricingChannel: "dine_in", confidenceLevel: "VERIFIED", sourceUrl: "https://example.test/ocean", sourceType: "official_website", sourceReferenceId: "ocean-to-jungle",
   retrievedAt: "2026-09-03T00:00:00.000Z", validFrom: "2026-06-29T16:00:00.000Z", validUntil: "2026-10-01T15:59:59.999Z",
   applicabilityNotes: "One-person promotional access to two venues.", evidenceNotes: "Official pass price and validity.",
 };
 const oceanCandidate = { placeId: oceanPlaceId, outcome: "unresolved" as const, reason: "PRODUCT_VARIANT_NOT_REPRESENTABLE", unresolvedPriceEvidence: oceanEvidence };
 
 function artifact(overrides: Partial<PilotArtifact> = {}): PilotArtifact {
-  return { schemaVersion: "explorewise.price-pilot.v1", reviewStatus: "approved", generatedAt: "2026-09-03T00:00:00.000Z", supportedCurrencies: ["PHP"], candidates: [casaCandidate], prices: [price], chains: [], memberships: [], ...overrides };
+  return { schemaVersion: "explorewise.price-pilot.v1", reviewStatus: "approved", generatedAt: "2026-09-03T00:00:00.000Z", supportedCurrencies: ["PHP"], candidates: [casaCandidate], prices: [price], brands: [], brandMemberships: [], ...overrides };
 }
 
 test("Casa Manila regular admission is importable place-level evidence", () => {

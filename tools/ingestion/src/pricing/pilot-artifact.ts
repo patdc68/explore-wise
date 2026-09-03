@@ -3,14 +3,18 @@ import {
   CONFIDENCE_LEVELS,
   PRICE_PRECISIONS,
   PRICING_SOURCES,
+  PRICING_BASES,
+  PRICING_CHANNELS,
   PRICING_UNITS,
   type ConfidenceLevel,
   type PricePrecision,
   type PricingSource,
+  type PricingBasis,
+  type PricingChannel,
   type PricingUnit,
 } from "../../../../packages/database/src/pricing.js";
 
-export type PilotTarget = Readonly<{ placeId?: string; chainCode?: string }>;
+export type PilotTarget = Readonly<{ placeId?: string; brandCode?: string }>;
 export const PRICE_APPLICABILITY_SCOPES = [
   "PLACE_LEVEL_PRICE",
   "NAMED_TICKET_OR_PASS",
@@ -31,7 +35,10 @@ export type PilotPrice = Readonly<{
   pricingUnit: PricingUnit;
   pricingSource: PricingSource;
   pricePrecision: PricePrecision;
+  pricingBasis: PricingBasis;
+  pricingChannel: PricingChannel;
   confidenceLevel: ConfidenceLevel;
+  derivationVersion?: string;
   sourceUrl: string;
   sourceType: string;
   sourceTitle?: string;
@@ -60,6 +67,8 @@ export type PilotUnresolvedPriceEvidence = Readonly<{
   pricingUnit: PricingUnit;
   pricingSource: PricingSource;
   pricePrecision: PricePrecision;
+  pricingBasis: PricingBasis;
+  pricingChannel: PricingChannel;
   confidenceLevel: ConfidenceLevel;
   sourceUrl: string;
   sourceType: string;
@@ -80,10 +89,11 @@ export type PilotCandidate = Readonly<{
   [key: string]: unknown;
 }>;
 
-export type PilotChain = Readonly<{ code: string; name: string; countryCode?: string }>;
-export type PilotMembership = Readonly<{
+/** `brand` includes merchants of any number of confirmed locations. */
+export type PilotBrand = Readonly<{ code: string; name: string; countryCode?: string }>;
+export type PilotBrandMembership = Readonly<{
   placeId: string;
-  chainCode: string;
+  brandCode: string;
   linkSource: "official_website" | "merchant" | "licensed_provider" | "manual_review";
   sourceUrl: string;
   verifiedAt: string;
@@ -98,14 +108,16 @@ export type PilotArtifact = Readonly<{
   supportedCurrencies: readonly string[];
   candidates: readonly PilotCandidate[];
   prices: readonly PilotPrice[];
-  chains: readonly PilotChain[];
-  memberships: readonly PilotMembership[];
+  brands: readonly PilotBrand[];
+  brandMemberships: readonly PilotBrandMembership[];
 }>;
 
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u;
 const CURRENCY = /^[A-Z]{3}$/u;
 const asSet = <T extends string>(values: readonly T[]) => new Set<string>(values);
 const SOURCES = asSet(PRICING_SOURCES);
+const BASES = asSet(PRICING_BASES);
+const CHANNELS = asSet(PRICING_CHANNELS);
 const UNITS = asSet(PRICING_UNITS);
 const PRECISIONS = asSet(PRICE_PRECISIONS);
 const CONFIDENCES = asSet(CONFIDENCE_LEVELS);
@@ -123,7 +135,7 @@ export class PilotArtifactValidationError extends Error {
 }
 
 function targetKey(target: PilotTarget): string {
-  return target.placeId ? `place:${target.placeId}` : `chain:${target.chainCode ?? ""}`;
+  return target.placeId ? `place:${target.placeId}` : `brand:${target.brandCode ?? ""}`;
 }
 
 function validateEvidence(
@@ -135,7 +147,7 @@ function validateEvidence(
   if (!CURRENCY.test(evidence.currencyCode) || !supported.has(evidence.currencyCode)) issues.push(`${prefix}: unsupported currency`);
   if (!Number.isSafeInteger(evidence.minAmountMinor) || !Number.isSafeInteger(evidence.maxAmountMinor) || evidence.minAmountMinor < 0 || evidence.maxAmountMinor < 0) issues.push(`${prefix}: amounts must be non-negative minor-unit integers`);
   if (evidence.minAmountMinor > evidence.maxAmountMinor) issues.push(`${prefix}: min exceeds max`);
-  if (!UNITS.has(evidence.pricingUnit) || !SOURCES.has(evidence.pricingSource) || !PRECISIONS.has(evidence.pricePrecision) || !CONFIDENCES.has(evidence.confidenceLevel)) issues.push(`${prefix}: unsupported pricing enum`);
+  if (!UNITS.has(evidence.pricingUnit) || !SOURCES.has(evidence.pricingSource) || !PRECISIONS.has(evidence.pricePrecision) || !BASES.has(evidence.pricingBasis) || !CHANNELS.has(evidence.pricingChannel) || !CONFIDENCES.has(evidence.confidenceLevel)) issues.push(`${prefix}: unsupported pricing enum`);
   if (!evidence.sourceUrl?.trim() || !SOURCE_TYPES.has(evidence.sourceType)) issues.push(`${prefix}: provenance is missing or source type is unknown`);
   if (!ISO_TIMESTAMP.test(evidence.retrievedAt)) issues.push(`${prefix}: verification timestamp is required`);
   if (evidence.validFrom && !ISO_TIMESTAMP.test(evidence.validFrom)) issues.push(`${prefix}: validFrom must be a UTC ISO timestamp`);
@@ -152,8 +164,8 @@ export function validatePilotArtifact(artifact: PilotArtifact, options: Readonly
   if (options.requireApproved && artifact.reviewStatus !== "approved") issues.push("artifact is not explicitly approved");
   if (!ISO_TIMESTAMP.test(artifact.generatedAt)) issues.push("generatedAt must be a UTC ISO timestamp");
   const supported = new Set(artifact.supportedCurrencies);
-  const chainCodes = new Set(artifact.chains.map((chain) => chain.code));
-  const membershipByPlace = new Map(artifact.memberships.map((membership) => [membership.placeId, membership]));
+  const brandCodes = new Set(artifact.brands.map((brand) => brand.code));
+  const membershipByPlace = new Map(artifact.brandMemberships.map((membership) => [membership.placeId, membership]));
   const seen = new Set<string>();
   const candidates = new Map<string, PilotCandidate>();
   for (const candidate of artifact.candidates) {
@@ -174,15 +186,18 @@ export function validatePilotArtifact(artifact: PilotArtifact, options: Readonly
   for (const price of artifact.prices) {
     const prefix = `price ${price.recordId}`;
     const hasPlace = Boolean(price.target.placeId);
-    const hasChain = Boolean(price.target.chainCode);
-    if (hasPlace === hasChain) issues.push(`${prefix}: exactly one place or chain target is required`);
+    const hasBrand = Boolean(price.target.brandCode);
+    if (hasPlace === hasBrand) issues.push(`${prefix}: exactly one place or brand target is required`);
     validateEvidence(price, supported, prefix, issues);
+    if (price.pricingBasis === "brand_reference" && !hasBrand) issues.push(`${prefix}: brand_reference requires a brand target`);
+    if (price.pricingBasis !== "brand_reference" && !hasPlace) issues.push(`${prefix}: place-level basis requires a place target`);
+    if (price.pricingBasis !== "branch_verified" && (price.pricePrecision !== "derived" || price.confidenceLevel !== "HIGH" || !price.derivationVersion?.trim())) issues.push(`${prefix}: reference pricing requires derived HIGH evidence and a derivation version`);
     if (price.applicabilityScope !== "PLACE_LEVEL_PRICE") issues.push(`${prefix}: only PLACE_LEVEL_PRICE is importable in Phase 1`);
     if (price.target.placeId && candidates.get(price.target.placeId)?.outcome !== "verified") issues.push(`${prefix}: importable price must target a verified candidate`);
-    if (hasChain) {
-      if (!chainCodes.has(price.target.chainCode!)) issues.push(`${prefix}: unknown chain target`);
-      const applicable = artifact.memberships.some((membership) => membership.chainCode === price.target.chainCode && membership.pricingProfileApplicable);
-      if (!applicable) issues.push(`${prefix}: chain price has no explicitly applicable membership`);
+    if (hasBrand) {
+      if (!brandCodes.has(price.target.brandCode!)) issues.push(`${prefix}: unknown brand target`);
+      const applicable = artifact.brandMemberships.some((membership) => membership.brandCode === price.target.brandCode && membership.pricingProfileApplicable);
+      if (!applicable) issues.push(`${prefix}: brand price has no explicitly applicable membership`);
     }
     // The Phase 1 schema has no product/format dimension. More than one price
     // for the same target/currency/unit would be impossible to resolve safely.
@@ -191,14 +206,14 @@ export function validatePilotArtifact(artifact: PilotArtifact, options: Readonly
     seen.add(duplicateKey);
   }
 
-  for (const membership of artifact.memberships) {
+  for (const membership of artifact.brandMemberships) {
     const prefix = `membership ${membership.placeId}`;
-    if (!chainCodes.has(membership.chainCode)) issues.push(`${prefix}: unknown chain`);
+    if (!brandCodes.has(membership.brandCode)) issues.push(`${prefix}: unknown brand`);
     if (!membership.sourceUrl?.trim() || !ISO_TIMESTAMP.test(membership.verifiedAt)) issues.push(`${prefix}: provenance and verification timestamp are required`);
     if (!membership.evidenceNotes.trim()) issues.push(`${prefix}: evidence notes are required`);
   }
-  if (new Set(artifact.memberships.map((membership) => membership.placeId)).size !== artifact.memberships.length) issues.push("duplicate chain memberships for a place");
-  if (membershipByPlace.size !== artifact.memberships.length) issues.push("duplicate chain memberships for a place");
+  if (new Set(artifact.brandMemberships.map((membership) => membership.placeId)).size !== artifact.brandMemberships.length) issues.push("duplicate brand memberships for a place");
+  if (membershipByPlace.size !== artifact.brandMemberships.length) issues.push("duplicate brand memberships for a place");
   if (issues.length) throw new PilotArtifactValidationError(issues);
 }
 

@@ -11,7 +11,7 @@ test("Philippine calendar-day boundaries convert to the correct UTC instants", (
 test("a Philippine-local end date is valid through local end-of-day and not after", () => {
   const evidence: PriceEvidence = {
     id: "bounded", currencyCode: "PHP", minAmountMinor: 95_000, maxAmountMinor: 95_000, pricingStatus: "paid", pricingUnit: "admission",
-    pricingSource: "official_website", pricePrecision: "exact", confidenceLevel: "VERIFIED", lastVerifiedAt: "2026-09-03T00:00:00.000Z",
+    pricingSource: "official_website", pricePrecision: "exact", pricingBasis: "branch_verified", pricingChannel: "dine_in", confidenceLevel: "VERIFIED", lastVerifiedAt: "2026-09-03T00:00:00.000Z",
     validFrom: localCalendarDayBoundaryToUtc("2026-06-30", "Asia/Manila", "start"),
     validUntil: localCalendarDayBoundaryToUtc("2026-10-01", "Asia/Manila", "end"),
   };

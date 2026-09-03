@@ -6,13 +6,20 @@ export const PRICING_SOURCES = [
   "official_website",
   "merchant",
   "licensed_provider",
-  "chain_profile",
   "explorewise_estimate",
 ] as const;
 export type PricingSource = (typeof PRICING_SOURCES)[number];
 
 export const PRICE_PRECISIONS = ["exact", "derived", "estimated"] as const;
 export type PricePrecision = (typeof PRICE_PRECISIONS)[number];
+
+/** Scope of applicability, intentionally independent from source provenance. */
+export const PRICING_BASES = ["branch_verified", "brand_reference", "place_reference"] as const;
+export type PricingBasis = (typeof PRICING_BASES)[number];
+
+/** The ordering context reported by the merchant; never inferred as dine-in. */
+export const PRICING_CHANNELS = ["dine_in", "pickup", "official_delivery", "unspecified_official", "unknown"] as const;
+export type PricingChannel = (typeof PRICING_CHANNELS)[number];
 
 export const CONFIDENCE_LEVELS = ["VERIFIED", "HIGH", "MEDIUM", "LOW"] as const;
 export type ConfidenceLevel = (typeof CONFIDENCE_LEVELS)[number];
@@ -22,7 +29,6 @@ export const PRICING_SOURCE_TRUST = {
   official_website: "authoritative",
   merchant: "authoritative",
   licensed_provider: "trusted",
-  chain_profile: "trusted",
   explorewise_estimate: "estimate",
 } as const;
 export type PricingSourceTrust = (typeof PRICING_SOURCE_TRUST)[PricingSource];
@@ -36,30 +42,41 @@ export type PriceEvidence = Readonly<{
   pricingUnit: PricingUnit;
   pricingSource: PricingSource;
   pricePrecision: PricePrecision;
+  pricingBasis: PricingBasis;
+  pricingChannel: PricingChannel;
   confidenceLevel: ConfidenceLevel;
+  derivationVersion?: string | null;
+  referenceDisclaimer?: string | null;
   lastVerifiedAt: string | null;
   validFrom?: string | null;
   validUntil?: string | null;
 }>;
 
-export type ChainMembership = Readonly<{
-  chainId: string;
+/** A membership is required only to inherit a brand-level reference. */
+export type BrandMembership = Readonly<{
+  brandId: string;
+  identityStatus: "CONFIRMED_CHAIN" | "UNRESOLVED" | "REJECTED";
   pricingProfileApplicable: boolean;
 }>;
 
 export type ResolvedPrice = Readonly<{
   evidence: PriceEvidence;
-  inheritedFromChain: boolean;
+  inheritedFromBrand: boolean;
 }>;
 
-export type BudgetStatus = "fits" | "may_exceed" | "exceeds" | "unknown";
+export const MENU_ITEM_CLASSES = ["solo_core", "solo_optional", "shared", "add_on", "beverage", "dessert", "group_package", "promotional", "unknown"] as const;
+export type MenuItemClass = (typeof MENU_ITEM_CLASSES)[number];
+export type MenuItemForDerivation = Readonly<{ id: string; amountMinor: number; classification: MenuItemClass }>;
+export type SpendDerivation = Readonly<{ outcome: "derived"; minAmountMinor: number; maxAmountMinor: number; qualifyingItemIds: readonly string[] } | { outcome: "review"; reason: "insufficient_solo_core_items" | "invalid_menu_item" }>;
+
+export type BudgetStatus = "fits" | "may_exceed" | "exceeds" | "likely_fits" | "likely_exceeds" | "unknown";
 
 export type BudgetEvaluation = Readonly<{
   status: BudgetStatus;
   groupMinAmountMinor: number | null;
   groupMaxAmountMinor: number | null;
   evidence: ResolvedPrice | null;
-  reason: "no_pricing" | "stale_or_invalid" | "insufficient_confidence" | "fits" | "may_exceed" | "exceeds";
+  reason: "no_pricing" | "stale_or_invalid" | "insufficient_confidence" | "fits" | "may_exceed" | "exceeds" | "likely_fits" | "likely_exceeds";
 }>;
 
 /** Prices require fresh verification at least every 90 days unless an earlier valid_until is supplied. */
@@ -90,9 +107,19 @@ export function isPriceStructurallyValid(evidence: PriceEvidence): boolean {
   if (!Number.isSafeInteger(evidence.minAmountMinor) || !Number.isSafeInteger(evidence.maxAmountMinor)) return false;
   if (evidence.minAmountMinor < 0 || evidence.minAmountMinor > evidence.maxAmountMinor) return false;
   if (evidence.pricingStatus === "free") {
-    return evidence.pricingUnit === "free" && evidence.minAmountMinor === 0 && evidence.maxAmountMinor === 0;
+    return evidence.pricingUnit === "free" && evidence.minAmountMinor === 0 && evidence.maxAmountMinor === 0
+      && (evidence.pricingBasis === "branch_verified" || (evidence.pricingSource === "official_menu" && evidence.pricePrecision === "derived"));
   }
-  return evidence.pricingUnit !== "free" && evidence.minAmountMinor > 0;
+  if (evidence.pricingUnit === "free" || evidence.minAmountMinor <= 0) return false;
+  if (evidence.pricingBasis === "branch_verified") {
+    return evidence.pricePrecision === "exact"
+      && evidence.confidenceLevel === "VERIFIED"
+      && ["official_menu", "official_website", "merchant", "licensed_provider"].includes(evidence.pricingSource);
+  }
+  return evidence.pricePrecision === "derived"
+    && evidence.confidenceLevel !== "VERIFIED"
+    && ["official_menu", "official_website", "merchant"].includes(evidence.pricingSource)
+    && Boolean(evidence.derivationVersion?.trim());
 }
 
 /**
@@ -102,7 +129,8 @@ export function isPriceStructurallyValid(evidence: PriceEvidence): boolean {
 export function canSupportBudgetConclusion(evidence: PriceEvidence): boolean {
   return PRICING_SOURCE_TRUST[evidence.pricingSource] !== "estimate"
     && evidence.confidenceLevel !== "LOW"
-    && evidence.pricePrecision !== "estimated";
+    && evidence.pricePrecision !== "estimated"
+    && (evidence.pricingBasis === "branch_verified" || evidence.confidenceLevel === "HIGH");
 }
 
 function preferredEvidence(prices: readonly PriceEvidence[], now: Date): PriceEvidence | null {
@@ -120,18 +148,18 @@ function preferredEvidence(prices: readonly PriceEvidence[], now: Date): PriceEv
     })[0] ?? null;
 }
 
-/** Direct branch evidence always wins. A chain profile is eligible only after an explicit applicability link. */
+/** Direct place evidence (branch verified or place reference) always wins. */
 export function resolvePriceEvidence(input: Readonly<{
-  branchPrices: readonly PriceEvidence[];
-  chainPrices: readonly PriceEvidence[];
-  chainMembership: ChainMembership | null;
+  placePrices: readonly PriceEvidence[];
+  brandPrices: readonly PriceEvidence[];
+  brandMembership: BrandMembership | null;
   now: Date;
 }>): ResolvedPrice | null {
-  const direct = preferredEvidence(input.branchPrices, input.now);
-  if (direct) return { evidence: direct, inheritedFromChain: false };
-  if (!input.chainMembership?.pricingProfileApplicable) return null;
-  const inherited = preferredEvidence(input.chainPrices, input.now);
-  return inherited ? { evidence: inherited, inheritedFromChain: true } : null;
+  const direct = preferredEvidence(input.placePrices, input.now);
+  if (direct) return { evidence: direct, inheritedFromBrand: false };
+  if (input.brandMembership?.identityStatus !== "CONFIRMED_CHAIN" || !input.brandMembership.pricingProfileApplicable) return null;
+  const inherited = preferredEvidence(input.brandPrices, input.now);
+  return inherited ? { evidence: inherited, inheritedFromBrand: true } : null;
 }
 
 export function groupPriceRange(evidence: PriceEvidence, partySize: number): Readonly<{ minAmountMinor: number; maxAmountMinor: number }> {
@@ -158,7 +186,35 @@ export function evaluateBudget(input: Readonly<{
     return { status: "unknown", groupMinAmountMinor: null, groupMaxAmountMinor: null, evidence: resolved, reason: "insufficient_confidence" };
   }
   const range = groupPriceRange(resolved.evidence, input.partySize);
-  if (range.maxAmountMinor <= input.budgetAmountMinor) return { status: "fits", groupMinAmountMinor: range.minAmountMinor, groupMaxAmountMinor: range.maxAmountMinor, evidence: resolved, reason: "fits" };
-  if (range.minAmountMinor > input.budgetAmountMinor) return { status: "exceeds", groupMinAmountMinor: range.minAmountMinor, groupMaxAmountMinor: range.maxAmountMinor, evidence: resolved, reason: "exceeds" };
+  const reference = resolved.evidence.pricingBasis !== "branch_verified";
+  if (range.maxAmountMinor <= input.budgetAmountMinor) {
+    return { status: reference ? "likely_fits" : "fits", groupMinAmountMinor: range.minAmountMinor, groupMaxAmountMinor: range.maxAmountMinor, evidence: resolved, reason: reference ? "likely_fits" : "fits" };
+  }
+  if (range.minAmountMinor > input.budgetAmountMinor) {
+    return { status: reference ? "likely_exceeds" : "exceeds", groupMinAmountMinor: range.minAmountMinor, groupMaxAmountMinor: range.maxAmountMinor, evidence: resolved, reason: reference ? "likely_exceeds" : "exceeds" };
+  }
   return { status: "may_exceed", groupMinAmountMinor: range.minAmountMinor, groupMaxAmountMinor: range.maxAmountMinor, evidence: resolved, reason: "may_exceed" };
+}
+
+export function pricingDisclosure(evidence: PriceEvidence): string | null {
+  if (evidence.pricingBasis === "branch_verified") return null;
+  if (evidence.referenceDisclaimer?.trim()) return evidence.referenceDisclaimer;
+  return evidence.pricingBasis === "brand_reference"
+    ? "Based on the brand's official menu. Actual prices may vary by location or ordering channel."
+    : "Based on this restaurant's official menu. Your actual spend depends on what you order.";
+}
+
+/**
+ * Shared deterministic derivation for all merchant sizes. Item classification
+ * is supplied by a source adapter/reviewer; this function never guesses it.
+ * Shared dishes, add-ons, beverages, desserts, packages, and promotions are
+ * deliberately excluded from a normal solo spend range.
+ */
+export function deriveNormalSoloSpendRange(items: readonly MenuItemForDerivation[]): SpendDerivation {
+  if (items.some((item) => !item.id.trim() || !Number.isSafeInteger(item.amountMinor) || item.amountMinor <= 0)) return { outcome: "review", reason: "invalid_menu_item" };
+  const qualifying = items.filter((item) => item.classification === "solo_core").sort((left, right) => left.amountMinor - right.amountMinor || left.id.localeCompare(right.id));
+  if (qualifying.length < 3) return { outcome: "review", reason: "insufficient_solo_core_items" };
+  // After class filtering, min/max describe the declared normal solo menu
+  // class, rather than the cheapest and most expensive item on the whole menu.
+  return { outcome: "derived", minAmountMinor: qualifying[0]!.amountMinor, maxAmountMinor: qualifying.at(-1)!.amountMinor, qualifyingItemIds: qualifying.map((item) => item.id) };
 }

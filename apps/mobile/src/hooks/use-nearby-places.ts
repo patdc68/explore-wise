@@ -3,11 +3,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { discoveryErrorMessage } from '@/lib/discovery-errors';
 import {
   categoryCodesFromKey,
-  fetchNearbyPlaces,
+  fetchPricedNearbyPlaces,
   nearbyQueryKey,
   stableCategoryCodes,
   type Coordinates,
-  type NearbyPlace,
+  type PricedNearbyPlace,
   type NearbyPlacesInput,
 } from '@/services/places';
 
@@ -20,7 +20,7 @@ export function useNearbyPlaces({
   radiusMeters: number;
   categoryCodes?: string[];
 }) {
-  const [places, setPlaces] = useState<NearbyPlace[]>([]);
+  const [places, setPlaces] = useState<PricedNearbyPlace[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestVersion = useRef(0);
@@ -44,7 +44,7 @@ export function useNearbyPlaces({
     setIsLoading(true);
     setError(null);
     try {
-      const nearbyPlaces = await fetchNearbyPlaces(request);
+      const nearbyPlaces = await fetchPricedNearbyPlaces(request);
       if (version === requestVersion.current) setPlaces(nearbyPlaces);
     } catch (requestError) {
       if (version === requestVersion.current) {

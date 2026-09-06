@@ -1,170 +1,35 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ActivityIndicator, Alert, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { DiscoverySurface } from '@/components/discovery/discovery-surface';
+import { PriceSummary } from '@/components/discovery/price-summary';
 import { StateCard } from '@/components/discovery/state-card';
 import { ThemedText } from '@/components/themed-text';
-import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { ClaySurface, LoadingCard, PrimaryButton, SecondaryButton } from '@/components/ui/clay';
+import { MaxContentWidth, Radius, Spacing, Typography } from '@/constants/theme';
 import { useFavorites } from '@/hooks/use-favorites';
 import { useTheme } from '@/hooks/use-theme';
-import { fetchPlaceDetail, formatDistance, type PlaceDetail } from '@/services/places';
+import { useAuth } from '@/providers/auth-provider';
+import { fetchCommunityAggregate, formatPesoMinor, type CommunityAggregate } from '@/services/community';
+import { fetchPlaceDetail, fetchPricedNearbyPlaces, formatDistance, type PlaceDetail, type PricedNearbyPlace } from '@/services/places';
 
-function firstParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value;
-}
-
-function asFiniteNumber(value: string | string[] | undefined) {
-  const number = Number(firstParam(value));
-  return Number.isFinite(number) ? number : null;
-}
+function firstParam(value: string | string[] | undefined) { return Array.isArray(value) ? value[0] : value; }
+function asFiniteNumber(value: string | string[] | undefined) { const number = Number(firstParam(value)); return Number.isFinite(number) ? number : null; }
 
 export default function PlaceDetailScreen() {
-  const router = useRouter();
-  const theme = useTheme();
-  const params = useLocalSearchParams<{ id: string; latitude?: string; longitude?: string; distanceMeters?: string }>();
-  const placeId = firstParam(params.id);
-  const [place, setPlace] = useState<PlaceDetail | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const { favoriteIds, toggleFavorite } = useFavorites();
-
-  const loadPlace = useCallback(async () => {
-    if (!placeId) {
-      setError('This place could not be found.');
-      setIsLoading(false);
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-    try {
-      setPlace(await fetchPlaceDetail(placeId));
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Place details could not load.');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [placeId]);
-
-  useEffect(() => {
-    void loadPlace();
-  }, [loadPlace]);
-
-  const latitude = asFiniteNumber(params.latitude);
-  const longitude = asFiniteNumber(params.longitude);
-  const distance = formatDistance(asFiniteNumber(params.distanceMeters));
-  const locationLabel = useMemo(
-    () => [place?.address, place?.district, place?.city, place?.region].filter(Boolean).join(', '),
-    [place],
-  );
-
-  const openUrl = async (url: string) => {
-    const supported = await Linking.canOpenURL(url);
-    if (!supported) {
-      Alert.alert('Unable to open link', 'This action is not available on your device.');
-      return;
-    }
-    await Linking.openURL(url);
-  };
-
-  const handleFavorite = () => {
-    if (!placeId) return;
-    void toggleFavorite(placeId).catch((favoriteError) => {
-      Alert.alert(
-        'Sign in to save places',
-        favoriteError instanceof Error ? favoriteError.message : 'Favorites are unavailable right now.',
-      );
-    });
-  };
-
-  return (
-    <View style={[styles.screen, { backgroundColor: theme.background }]}>
-      <SafeAreaView edges={['bottom']} style={styles.safeArea}>
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} style={styles.backButton}>
-            <ThemedText type="smallBold" themeColor="accent">‹ Back</ThemedText>
-          </Pressable>
-
-          {isLoading ? (
-            <DiscoverySurface style={styles.loadingCard}>
-              <ActivityIndicator color={theme.accent} />
-              <ThemedText type="small" themeColor="textSecondary">Loading place details…</ThemedText>
-            </DiscoverySurface>
-          ) : error ? (
-            <StateCard title="Couldn’t load this place" message={error} actionLabel="Try again" onAction={() => void loadPlace()} />
-          ) : !place ? (
-            <StateCard title="Place unavailable" message="This place may no longer be active." actionLabel="Back to Explore" onAction={() => router.back()} />
-          ) : (
-            <>
-              <View style={styles.hero}>
-                {place.categoryName ? <ThemedText type="smallBold" themeColor="accent" style={styles.eyebrow}>{place.categoryName}</ThemedText> : null}
-                <ThemedText type="subtitle" style={styles.name}>{place.name}</ThemedText>
-                {distance ? <ThemedText type="smallBold">{distance} away</ThemedText> : null}
-              </View>
-
-              {locationLabel ? (
-                <DetailSection title="Location">
-                  <ThemedText type="default">{locationLabel}</ThemedText>
-                </DetailSection>
-              ) : null}
-
-              {place.description ? (
-                <DetailSection title="About">
-                  <ThemedText type="default" themeColor="textSecondary">{place.description}</ThemedText>
-                </DetailSection>
-              ) : null}
-
-              <DetailSection title="Actions">
-                <View style={styles.actions}>
-                  <ActionButton label={favoriteIds.has(place.id) ? 'Saved' : 'Save'} onPress={handleFavorite} />
-                  {place.website_url ? <ActionButton label="Website" onPress={() => void openUrl(place.website_url!)} /> : null}
-                  {place.phone_number ? <ActionButton label="Call" onPress={() => void openUrl(`tel:${place.phone_number!.replace(/\s+/g, '')}`)} /> : null}
-                  {latitude !== null && longitude !== null ? (
-                    <ActionButton
-                      label="Directions"
-                      onPress={() => void openUrl(`https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}`)}
-                    />
-                  ) : null}
-                </View>
-              </DetailSection>
-            </>
-          )}
-        </ScrollView>
-      </SafeAreaView>
-    </View>
-  );
+  const router = useRouter(); const theme = useTheme(); const params = useLocalSearchParams<{ id: string; latitude?: string; longitude?: string; distanceMeters?: string }>(); const placeId = firstParam(params.id); const latitude = asFiniteNumber(params.latitude); const longitude = asFiniteNumber(params.longitude); const distance = formatDistance(asFiniteNumber(params.distanceMeters));
+  const [place, setPlace] = useState<PlaceDetail | null>(null); const [pricedPlace, setPricedPlace] = useState<PricedNearbyPlace | null>(null); const [community, setCommunity] = useState<CommunityAggregate | null>(null); const [isLoading, setIsLoading] = useState(true); const [error, setError] = useState<string | null>(null); const { favoriteIds, toggleFavorite } = useFavorites(); const { user, queueAfterAuthentication } = useAuth();
+  const loadPlace = useCallback(async () => { if (!placeId) { setError('This place could not be found.'); setIsLoading(false); return; } setIsLoading(true); setError(null); try { const [detail, aggregate] = await Promise.all([fetchPlaceDetail(placeId), fetchCommunityAggregate(placeId).catch(() => null)]); setPlace(detail); setCommunity(aggregate); if (latitude !== null && longitude !== null) { try { const aroundPlace = await fetchPricedNearbyPlaces({ coordinates: { latitude, longitude }, radiusMeters: 80, resultLimit: 20 }); setPricedPlace(aroundPlace.find((candidate) => candidate.place_id === placeId) ?? null); } catch { setPricedPlace(null); } } } catch { setError('We couldn’t load this place right now. Please try again.'); } finally { setIsLoading(false); } }, [latitude, longitude, placeId]);
+  useEffect(() => { void loadPlace(); }, [loadPlace]);
+  const locationLabel = useMemo(() => [place?.address, place?.district, place?.city, place?.region].filter(Boolean).join(', '), [place]);
+  const openUrl = async (url: string) => { const supported = await Linking.canOpenURL(url); if (!supported) { Alert.alert('Unable to open link', 'This action is not available on your device.'); return; } await Linking.openURL(url); };
+  const handleFavorite = () => { if (!placeId) return; if (!user) { queueAfterAuthentication(() => toggleFavorite(placeId)); Alert.alert('Sign in to save places', 'Create an account or sign in to keep this place.', [{ text: 'Sign In', onPress: () => router.push('/auth/sign-in') }, { text: 'Create Account', onPress: () => router.push('/auth/sign-up') }, { text: 'Cancel', style: 'cancel' }]); return; } void toggleFavorite(placeId).catch(() => Alert.alert('Favorites unavailable', 'Please try again.')); };
+  const handleReport = () => { if (!placeId) return; const go = () => router.push({ pathname: '/place/[id]/report', params: { id: placeId, name: place?.name ?? '' } } as never); if (!user) { queueAfterAuthentication(go); Alert.alert('Sign in to contribute', 'Sign in to share a rating or reported spend.', [{ text: 'Sign In', onPress: () => router.push('/auth/sign-in') }, { text: 'Create Account', onPress: () => router.push('/auth/sign-up') }, { text: 'Cancel', style: 'cancel' }]); return; } go(); };
+  return <View style={[styles.screen, { backgroundColor: theme.background }]}><SafeAreaView edges={['top', 'bottom']} style={styles.safe}><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}><Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} style={[styles.back, { backgroundColor: theme.elevatedSurface, borderColor: theme.border }]}><Ionicons name="chevron-back" size={20} color={theme.text} /></Pressable>{isLoading ? <LoadingCard label="Loading place details…" /> : error ? <StateCard title="Couldn’t load this place" message={error} actionLabel="Try again" onAction={() => void loadPlace()} /> : !place ? <StateCard title="Place unavailable" message="This place may no longer be active." actionLabel="Back to Explore" onAction={() => router.back()} /> : <><ClaySurface elevation="raised" style={styles.hero}><View style={[styles.heroMark, { backgroundColor: theme.accent }]}><Ionicons name="compass" color={theme.accentText} size={28} /></View>{place.categoryName ? <ThemedText type="smallBold" themeColor="textSecondary" style={styles.eyebrow}>{place.categoryName}</ThemedText> : null}<ThemedText style={Typography.screenHeading}>{place.name}</ThemedText>{distance ? <ThemedText type="smallBold">{distance} away</ThemedText> : null}</ClaySurface><ClaySurface style={styles.priceCard}><ThemedText type="smallBold" themeColor="textSecondary" style={styles.eyebrow}>{pricedPlace?.price_source_label ?? 'OFFICIAL / REFERENCE PRICE'}</ThemedText>{pricedPlace ? <PriceSummary place={pricedPlace} /> : <View style={[styles.unknownPrice, { backgroundColor: theme.unknownSoft }]}><ThemedText type="smallBold" style={{ color: theme.unknown }}>Price not available yet</ThemedText><ThemedText type="small" themeColor="textSecondary">We’ll show official or reference price evidence here when it is available.</ThemedText></View>}</ClaySurface><CommunitySections aggregate={community} onReport={handleReport} />{locationLabel ? <DetailSection title="Location"><ThemedText type="default">{locationLabel}</ThemedText></DetailSection> : null}{place.description ? <DetailSection title="About"><ThemedText type="default" themeColor="textSecondary">{place.description}</ThemedText></DetailSection> : null}<View style={styles.actions}><PrimaryButton label={favoriteIds.has(place.id) ? 'Saved' : 'Save place'} onPress={handleFavorite} style={styles.actionMain} /><SecondaryButton label="Navigate" onPress={() => latitude !== null && longitude !== null ? void openUrl(`https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}`) : undefined} style={styles.actionMain} /></View>{place.website_url || place.phone_number ? <View style={styles.links}>{place.website_url ? <SecondaryButton label="Website" onPress={() => void openUrl(place.website_url!)} style={styles.linkButton} /> : null}{place.phone_number ? <SecondaryButton label="Call" onPress={() => void openUrl(`tel:${place.phone_number!.replace(/\s+/g, '')}`)} style={styles.linkButton} /> : null}</View> : null}</>}</ScrollView></SafeAreaView></View>;
 }
 
-function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <DiscoverySurface style={styles.detailSection}>
-      <ThemedText type="smallBold" themeColor="textSecondary" style={styles.sectionTitle}>{title}</ThemedText>
-      {children}
-    </DiscoverySurface>
-  );
-}
-
-function ActionButton({ label, onPress }: { label: string; onPress: () => void }) {
-  return (
-    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={styles.actionButton}>
-      <ThemedText type="smallBold" themeColor="accent">{label}</ThemedText>
-    </Pressable>
-  );
-}
-
-const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  safeArea: { flex: 1 },
-  content: { alignSelf: 'center', gap: Spacing.three, maxWidth: MaxContentWidth, padding: Spacing.three, width: '100%' },
-  backButton: { alignSelf: 'flex-start', minHeight: 40, justifyContent: 'center', paddingRight: Spacing.three },
-  loadingCard: { alignItems: 'center', flexDirection: 'row', gap: Spacing.two },
-  hero: { gap: Spacing.one, paddingVertical: Spacing.two },
-  eyebrow: { letterSpacing: 1, textTransform: 'uppercase' },
-  name: { fontSize: 34, lineHeight: 40 },
-  detailSection: { gap: Spacing.one },
-  sectionTitle: { letterSpacing: 0.8, textTransform: 'uppercase' },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.one },
-  actionButton: { minHeight: 42, justifyContent: 'center', paddingHorizontal: Spacing.two },
-});
+function CommunitySections({ aggregate, onReport }: { aggregate: CommunityAggregate | null; onReport: () => void }) { const showSpend = Boolean(aggregate?.community_spend_available && aggregate.median_spend_per_person_minor !== null); return <><ClaySurface style={styles.detailSection}><ThemedText type="smallBold" themeColor="textSecondary" style={styles.eyebrow}>COMMUNITY SPENDING</ThemedText>{showSpend ? <><ThemedText style={Typography.price}>Typical reported spend {formatPesoMinor(aggregate!.median_spend_per_person_minor!)}/person</ThemedText><ThemedText type="small" themeColor="textSecondary">Based on {aggregate!.spend_report_count} recent reports</ThemedText></> : <ThemedText type="small" themeColor="textSecondary">Not enough community pricing data yet</ThemedText>}</ClaySurface><ClaySurface style={styles.detailSection}><ThemedText type="smallBold" themeColor="textSecondary" style={styles.eyebrow}>EXPLOREWISE RATING</ThemedText>{aggregate?.rating_count ? <ThemedText style={Typography.cardTitle}>{aggregate.average_rating?.toFixed(1)} ★ · {aggregate.rating_count} {aggregate.rating_count === 1 ? 'rating' : 'ratings'}</ThemedText> : <ThemedText type="small" themeColor="textSecondary">No ExploreWise ratings yet</ThemedText>}<PrimaryButton label="Rate / Report Spend" onPress={onReport} /></ClaySurface></>; }
+function DetailSection({ title, children }: { title: string; children: React.ReactNode }) { return <ClaySurface style={styles.detailSection}><ThemedText type="smallBold" themeColor="textSecondary" style={styles.eyebrow}>{title}</ThemedText>{children}</ClaySurface>; }
+const styles = StyleSheet.create({ screen: { flex: 1 }, safe: { flex: 1 }, content: { alignSelf: 'center', gap: Spacing.md, maxWidth: MaxContentWidth, padding: Spacing.md, paddingBottom: Spacing.six, width: '100%' }, back: { alignItems: 'center', alignSelf: 'flex-start', borderRadius: Radius.chip, borderWidth: 1, height: 42, justifyContent: 'center', width: 42 }, hero: { gap: Spacing.xs, padding: Spacing.lg }, heroMark: { alignItems: 'center', borderRadius: 20, height: 58, justifyContent: 'center', marginBottom: Spacing.xs, width: 58 }, eyebrow: { fontSize: 11, letterSpacing: 1, textTransform: 'uppercase' }, priceCard: { gap: Spacing.sm }, unknownPrice: { borderRadius: Radius.input, gap: Spacing.xs, padding: Spacing.md }, detailSection: { gap: Spacing.xs }, actions: { flexDirection: 'row', gap: Spacing.sm }, actionMain: { flex: 1 }, links: { flexDirection: 'row', gap: Spacing.sm }, linkButton: { flex: 1 } });

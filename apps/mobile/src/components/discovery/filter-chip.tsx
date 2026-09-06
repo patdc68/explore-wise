@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { Radius, Shadows, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 type FilterChipProps = {
@@ -21,12 +22,13 @@ export function FilterChip({ label, selected, onPress }: FilterChipProps) {
       style={({ pressed }) => [
         styles.chip,
         {
-          backgroundColor: selected ? theme.accentSoft : theme.surface,
-          borderColor: selected ? theme.accent : theme.border,
+          backgroundColor: selected ? theme.accent : theme.elevatedSurface,
+          borderColor: selected ? theme.accentStrong : theme.border,
+          shadowColor: theme.shadow,
         },
         pressed && styles.pressed,
       ]}>
-      <ThemedText type="smallBold" themeColor={selected ? 'accent' : 'text'}>
+      <ThemedText type="smallBold" style={{ color: selected ? theme.accentText : theme.text }}>
         {label}
       </ThemedText>
     </Pressable>
@@ -35,12 +37,15 @@ export function FilterChip({ label, selected, onPress }: FilterChipProps) {
 
 const styles = StyleSheet.create({
   chip: {
-    borderRadius: 999,
+    borderRadius: Radius.chip,
     borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    minHeight: 42,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 9,
+    ...Shadows.subtle,
   },
   pressed: {
-    opacity: 0.7,
+    opacity: 0.82,
+    transform: [{ translateY: 2 }],
   },
 });

@@ -1,7 +1,8 @@
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { Radius, Spacing } from '@/constants/theme';
+import { PrimaryButton } from '@/components/ui/clay';
 import { useTheme } from '@/hooks/use-theme';
 import { isLocationSearchAvailable } from '@/services/location-search';
 
@@ -37,13 +38,7 @@ export function LocationSearchSheet({
               : 'Location search is being prepared for ExploreWise. For now, use your current location.'}
           </ThemedText>
 
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Use my current location"
-            onPress={onUseCurrentLocation}
-            style={[styles.primaryAction, { backgroundColor: theme.accentSoft }]}>
-            <ThemedText type="smallBold" themeColor="accent">Use my current location</ThemedText>
-          </Pressable>
+          <PrimaryButton label="Use my current location" onPress={onUseCurrentLocation} accessibilityLabel="Use my current location" />
         </DiscoverySurface>
       </View>
     </Modal>
@@ -52,9 +47,8 @@ export function LocationSearchSheet({
 
 const styles = StyleSheet.create({
   backdrop: { backgroundColor: 'rgba(0, 0, 0, 0.32)', flex: 1, justifyContent: 'flex-end' },
-  sheet: { borderBottomLeftRadius: 0, borderBottomRightRadius: 0, gap: Spacing.three, paddingBottom: Spacing.five },
+  sheet: { borderBottomLeftRadius: 0, borderBottomRightRadius: 0, borderTopLeftRadius: Radius.sheet, borderTopRightRadius: Radius.sheet, gap: Spacing.three, paddingBottom: Spacing.five },
   header: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   title: { fontSize: 26, lineHeight: 32 },
   closeButton: { minHeight: 44, justifyContent: 'center', paddingLeft: Spacing.two },
-  primaryAction: { alignItems: 'center', borderRadius: 14, minHeight: 52, justifyContent: 'center', paddingHorizontal: Spacing.three },
 });

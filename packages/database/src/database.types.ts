@@ -156,6 +156,60 @@ export type Database = {
           },
         ]
       }
+      ew_place_visit_reports: {
+        Row: {
+          created_at: string
+          currency_code: string
+          id: string
+          party_size: number | null
+          place_id: string
+          rating: number | null
+          short_note: string | null
+          spend_per_person_minor: number | null
+          status: string
+          total_spend_minor: number | null
+          updated_at: string
+          user_id: string
+          visit_date: string
+          visit_type: string | null
+        }
+        Insert: {
+          created_at?: string
+          currency_code?: string
+          id?: string
+          party_size?: number | null
+          place_id: string
+          rating?: number | null
+          short_note?: string | null
+          spend_per_person_minor?: never
+          status?: string
+          total_spend_minor?: number | null
+          updated_at?: string
+          user_id: string
+          visit_date: string
+          visit_type?: string | null
+        }
+        Update: {
+          currency_code?: string
+          party_size?: number | null
+          place_id?: string
+          rating?: number | null
+          short_note?: string | null
+          status?: string
+          total_spend_minor?: number | null
+          visit_date?: string
+          visit_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ew_place_visit_reports_place_id_fkey"
+            columns: ["place_id"]
+            isOneToOne: false
+            referencedRelation: "ew_places"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ew_ingestion_runs: {
         Row: {
           completed_at: string | null
@@ -735,6 +789,64 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      ew_community_spend_freshness_days: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      ew_place_community_aggregates: {
+        Args: { p_place_ids: string[] }
+        Returns: {
+          average_rating: number | null
+          community_spend_available: boolean
+          latest_report_at: string | null
+          median_spend_per_person_minor: number | null
+          place_id: string
+          rating_count: number
+          spend_report_count: number
+        }[]
+      }
+      ew_nearby_places_priced: {
+        Args: {
+          p_budget_minor?: number | null
+          p_category_codes?: string[] | null
+          p_latitude: number
+          p_longitude: number
+          p_party_size?: number
+          p_radius_meters?: number
+          p_result_limit?: number
+        }
+        Returns: {
+          address: string | null
+          budget_status: string | null
+          category_code: string
+          category_name: string
+          city: string | null
+          confidence_level: string | null
+          country_code: string | null
+          currency_code: string | null
+          distance_meters: number
+          effective_price_source: string | null
+          estimated_group_max_minor: number | null
+          estimated_group_min_minor: number | null
+          has_price: boolean
+          last_verified_at: string | null
+          latitude: number
+          longitude: number
+          max_amount_minor: number | null
+          min_amount_minor: number | null
+          name: string
+          phone_number: string | null
+          place_id: string
+          price_precision: string | null
+          price_source_label: string
+          pricing_basis: string | null
+          pricing_channel: string | null
+          pricing_status: string | null
+          pricing_unit: string | null
+          region: string | null
+          website_url: string | null
+        }[]
+      }
       ew_nearby_places: {
         Args: {
           p_category_codes?: string[]

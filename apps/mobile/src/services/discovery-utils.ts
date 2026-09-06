@@ -3,6 +3,8 @@ export type Coordinates = {
   longitude: number;
 };
 
+export { formatDistance } from './distance.ts';
+
 export type DiscoveryCategory = {
   code: string;
   name: string;
@@ -70,18 +72,6 @@ export function buildNearbyPlacesArgs({
     ...(categoryCodes.length > 0 ? { p_category_codes: [...new Set(categoryCodes)] } : {}),
     p_result_limit: resultLimit,
   };
-}
-
-export function formatDistance(distanceMeters: number | null | undefined) {
-  if (distanceMeters === null || distanceMeters === undefined || !Number.isFinite(distanceMeters)) {
-    return null;
-  }
-
-  if (distanceMeters < 1000) {
-    return `${Math.round(distanceMeters)} m`;
-  }
-
-  return `${(distanceMeters / 1000).toFixed(distanceMeters < 10_000 ? 1 : 0)} km`;
 }
 
 export function createDiscoveryCategories(categories: CategoryData[]): DiscoveryCategory[] {

@@ -1,4 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
 import { DiscoveryError } from '@/lib/discovery-errors';
 import { normalizeExploreWiseProjectUrl, normalizePublishableKey } from '@/lib/supabase-config';
@@ -11,13 +13,26 @@ const supabasePublishableKey = normalizePublishableKey(process.env.EXPO_PUBLIC_S
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabasePublishableKey);
 
-// Discovery is anonymous. Auth persistence will be introduced together with the sign-in flow.
+const serverStorage = {
+  getItem: async (_key: string) => null,
+  setItem: async (_key: string, _value: string) => undefined,
+  removeItem: async (_key: string) => undefined,
+};
+
+// Native persists through AsyncStorage. Web static rendering has no window, so
+// it uses a harmless in-memory adapter until the browser hydrates.
+const authStorage = Platform.OS === 'web'
+  ? (typeof window === 'undefined' ? serverStorage : window.localStorage)
+  : AsyncStorage;
+
+// Discovery remains anonymous, while signed-in sessions persist for account-only actions.
 export const supabase = isSupabaseConfigured
   ? createClient<Database>(supabaseUrl!, supabasePublishableKey!, {
       auth: {
-        autoRefreshToken: false,
+        storage: authStorage,
+        autoRefreshToken: true,
         detectSessionInUrl: false,
-        persistSession: false,
+        persistSession: true,
       },
     })
   : null;

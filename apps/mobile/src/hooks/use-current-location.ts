@@ -35,7 +35,7 @@ export function useCurrentLocation() {
     message: null,
   });
 
-  const requestCurrentLocation = useCallback(async () => {
+  const requestCurrentLocation = useCallback(async (): Promise<LocationSelection | null> => {
     setState((current) => ({ status: 'loading', selection: current.selection, message: null }));
 
     try {
@@ -46,7 +46,7 @@ export function useCurrentLocation() {
           selection: null,
           message: 'Turn on location services, or choose another location.',
         });
-        return;
+        return null;
       }
 
       const permission = await Location.requestForegroundPermissionsAsync();
@@ -56,7 +56,7 @@ export function useCurrentLocation() {
           selection: null,
           message: 'Allow location access to find places near you.',
         });
-        return;
+        return null;
       }
 
       const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
@@ -73,21 +73,20 @@ export function useCurrentLocation() {
         // A location fix remains useful even when the device cannot resolve a postal label.
       }
 
+      const selection: LocationSelection = { coordinates, label, source: 'current-location' };
       setState({
         status: 'ready',
-        selection: {
-          coordinates,
-          label,
-          source: 'current-location',
-        },
+        selection,
         message: null,
       });
+      return selection;
     } catch {
       setState({
         status: 'error',
         selection: null,
         message: 'We could not get your location. Please try again or choose another location.',
       });
+      return null;
     }
   }, []);
 

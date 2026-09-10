@@ -1,0 +1,33 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useMemo, useState } from 'react';
+
+import { ThemedText } from '@/components/themed-text';
+import { ClayInput, ClaySurface, PrimaryButton, SecondaryButton } from '@/components/ui/clay';
+import { MaxContentWidth, Radius, Spacing, Typography } from '@/constants/theme';
+import { formatPesoMinor, parsePesoToMinor, spendPerPersonMinor, submitVisitReport, validateVisitReport, VISIT_TYPES, type VisitType } from '@/services/community';
+import { useTheme } from '@/hooks/use-theme';
+
+function first(value: string | string[] | undefined) { return Array.isArray(value) ? value[0] : value; }
+function today() { return new Date().toISOString().slice(0, 10); }
+
+export default function ReportVisitScreen() {
+  const router = useRouter(); const theme = useTheme(); const params = useLocalSearchParams<{ id: string; name?: string }>(); const placeId = first(params.id) ?? ''; const placeName = first(params.name) ?? 'this place';
+  const [rating, setRating] = useState<number | null>(null); const [amount, setAmount] = useState(''); const [people, setPeople] = useState(''); const [visitType, setVisitType] = useState<VisitType | null>(null); const [visitDate, setVisitDate] = useState(today()); const [note, setNote] = useState(''); const [error, setError] = useState<string | null>(null); const [saving, setSaving] = useState(false);
+  const totalSpendMinor = useMemo(() => parsePesoToMinor(amount), [amount]); const partySize = people.trim() ? Number(people) : null; const reportedPerPerson = spendPerPersonMinor(totalSpendMinor, partySize);
+  const submit = async () => {
+    const input = { placeId, rating, totalSpendMinor, partySize, visitType, visitDate, shortNote: note.trim() || null };
+    const validation = validateVisitReport(input);
+    if (validation) { setError(validation); return; }
+    setSaving(true); setError(null);
+    try { await submitVisitReport(input); router.back(); }
+    catch (nextError) { setError(nextError instanceof Error ? nextError.message : 'Unable to submit your report.'); }
+    finally { setSaving(false); }
+  };
+  return <View style={[styles.screen, { backgroundColor: theme.background }]}><SafeAreaView style={styles.safe}><KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.safe}><ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"><Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} style={[styles.back, { backgroundColor: theme.elevatedSurface, borderColor: theme.border }]}><Ionicons name="chevron-back" size={20} color={theme.text} /></Pressable><View style={styles.heading}><ThemedText type="smallBold" themeColor="textSecondary" style={styles.eyebrow}>COMMUNITY DATA</ThemedText><ThemedText style={Typography.screenHeading}>How was your visit?</ThemedText><ThemedText type="small" themeColor="textSecondary">Your report for {placeName} stays anonymous in public aggregates.</ThemedText></View><ClaySurface elevation="raised" style={styles.form}><Field label="Rating (optional)"><View style={styles.stars}>{[1, 2, 3, 4, 5].map((value) => <Pressable key={value} accessibilityRole="button" accessibilityLabel={`${value} star rating`} onPress={() => setRating(value)} style={styles.star}><Ionicons name={rating !== null && value <= rating ? 'star' : 'star-outline'} color={theme.accentStrong} size={29} /></Pressable>)}</View></Field><Field label="Total amount spent (optional)"><ClayInput accessibilityLabel="Total amount spent in pesos" keyboardType="decimal-pad" onChangeText={setAmount} placeholder="₱ 0" value={amount} /></Field><Field label="Number of people"><ClayInput accessibilityLabel="Number of people" keyboardType="number-pad" onChangeText={setPeople} placeholder="Required when spending is entered" value={people} /></Field>{reportedPerPerson !== null ? <ClaySurface elevation="subtle" style={[styles.preview, { backgroundColor: theme.accentSoft, borderColor: theme.accentStrong }]}><ThemedText type="smallBold">Reported spend/person</ThemedText><ThemedText style={Typography.price}>{formatPesoMinor(reportedPerPerson)}</ThemedText></ClaySurface> : null}<Field label="Visit type (optional)"><View style={styles.types}>{VISIT_TYPES.map((type) => <Pressable key={type} accessibilityRole="button" accessibilityState={{ selected: visitType === type }} onPress={() => setVisitType(type)} style={[styles.chip, { backgroundColor: visitType === type ? theme.accentSoft : theme.elevatedSurface, borderColor: visitType === type ? theme.accentStrong : theme.border }]}><ThemedText type="smallBold">{type.replace('_', ' ')}</ThemedText></Pressable>)}</View></Field><Field label="Visit date"><ClayInput accessibilityLabel="Visit date" onChangeText={setVisitDate} placeholder="YYYY-MM-DD" value={visitDate} /></Field><Field label="Optional note"><ClayInput accessibilityLabel="Optional note" multiline maxLength={500} onChangeText={setNote} placeholder="Anything helpful to remember?" style={styles.note} value={note} /></Field>{error ? <ThemedText type="small" style={{ color: theme.error }}>{error}</ThemedText> : null}<PrimaryButton disabled={saving} label={saving ? 'Submitting…' : 'Submit report'} onPress={() => void submit()} /></ClaySurface><SecondaryButton label="Cancel" onPress={() => router.back()} /></ScrollView></KeyboardAvoidingView></SafeAreaView></View>;
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) { return <View style={styles.field}><ThemedText type="smallBold">{label}</ThemedText>{children}</View>; }
+const styles = StyleSheet.create({ screen: { flex: 1 }, safe: { flex: 1 }, content: { alignSelf: 'center', gap: Spacing.lg, maxWidth: MaxContentWidth, padding: Spacing.md, paddingBottom: Spacing.six, width: '100%' }, back: { alignItems: 'center', borderRadius: Radius.chip, borderWidth: 1, height: 42, justifyContent: 'center', width: 42 }, heading: { gap: Spacing.xs }, eyebrow: { fontSize: 11, letterSpacing: 1.1 }, form: { gap: Spacing.md }, field: { gap: Spacing.xs }, stars: { flexDirection: 'row', gap: Spacing.xs }, star: { padding: 2 }, preview: { gap: Spacing.xs }, types: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs }, chip: { borderRadius: Radius.chip, borderWidth: 1, paddingHorizontal: Spacing.sm, paddingVertical: Spacing.xs }, note: { minHeight: 96, textAlignVertical: 'top' } });

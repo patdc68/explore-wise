@@ -1369,6 +1369,15 @@ select {
   padding: clamp(5rem, 9vw, 8rem) 0 clamp(6rem, 10vw, 9rem);
 }
 
+.confirm-main { display: grid; min-height: 100vh; place-items: center; padding: 2rem 1rem; }
+.confirm-card { display: grid; width: min(100%, 34rem); gap: 1rem; padding: clamp(2rem, 8vw, 4rem); border-radius: 2rem; text-align: center; }
+.confirm-card h1 { margin: 0; font-size: clamp(2rem, 7vw, 3.2rem); font-weight: 950; letter-spacing: -0.06em; line-height: 1; }
+.confirm-card > p:not(.eyebrow) { margin: 0; color: var(--muted); }
+.confirm-mark { display: grid; width: 3rem; height: 3rem; place-items: center; margin: 0 auto; border-radius: 1rem; background: var(--lime); font-size: 1.6rem; font-weight: 900; }
+.confirm-card .button { justify-self: center; }
+.confirm-link { color: #405f00; font-size: .86rem; font-weight: 800; text-decoration: underline; text-underline-offset: .2rem; }
+.confirm-card small { color: var(--muted); font-size: .72rem; }
+
 .legal-hero,
 .support-hero {
   max-width: 53rem;

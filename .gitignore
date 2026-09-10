@@ -3,3 +3,13 @@
 .env.*
 !.env.example
 !**/.env.example
+
+# Ingestion tooling credentials stay local and server-side.
+tools/ingestion/.env.local
+tools/ingestion/node_modules/
+tools/ingestion/.artifacts/
+supabase/.temp/
+.codex/config.toml
+tools/ingestion/.secrets/
+*.jks
+*.keystore

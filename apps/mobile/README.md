@@ -54,3 +54,7 @@ Join our community of developers creating universal apps.
 
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+
+## Production Google Maps
+
+Expo Go includes the SDK-compatible `react-native-maps` implementation and does not need a project key for local map testing. For a standalone Android build, set `GOOGLE_MAPS_ANDROID_API_KEY` in the EAS/build environment, enable **Maps SDK for Android**, and restrict that key to package `com.inventrasystems.explorewise` plus the appropriate debug/EAS and Play App Signing SHA-1 fingerprints. The key is read by `app.config.ts`; never commit it.

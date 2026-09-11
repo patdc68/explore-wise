@@ -16,11 +16,12 @@ const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
 }).outputText;
 const testToken = 'test-only-confirmation-token';
-const validQuery = `token_hash=${testToken}&type=email`;
+const validQuery = `token_hash=${testToken}&type=signup`;
 
 function fixture({ query = validQuery, configured = true, verify } = {}) {
   const calls = [];
   const clients = [];
+  const logs = [];
   const exports = {};
   let currentQuery = query;
   const modules = {
@@ -40,6 +41,7 @@ function fixture({ query = validQuery, configured = true, verify } = {}) {
   };
   vm.runInNewContext(compiled, {
     exports,
+    console: Object.fromEntries(['log', 'info', 'warn', 'error', 'debug', 'trace'].map((method) => [method, (...args) => logs.push(args)])),
     require: (name) => {
       assert.ok(Object.hasOwn(modules, name), `Unexpected module: ${name}`);
       return modules[name];
@@ -50,7 +52,7 @@ function fixture({ query = validQuery, configured = true, verify } = {}) {
     } : {} },
   });
   const element = () => React.createElement(React.StrictMode, null, React.createElement(exports.ConfirmClient));
-  return { calls, clients, element, setQuery: (value) => { currentQuery = value; } };
+  return { calls, clients, logs, element, setQuery: (value) => { currentQuery = value; } };
 }
 
 async function mount(t, options) {
@@ -64,6 +66,7 @@ async function mount(t, options) {
   const app = fixture(options);
   const render = () => act(() => root.render(app.element()));
   t.after(async () => {
+    assert.equal(app.logs.length, 0, 'confirmation must not log token or error details');
     await act(() => root.unmount());
     window.close();
     delete globalThis.window;
@@ -104,8 +107,7 @@ test('explicit confirmation verifies once and exposes only the supported app lin
   const app = await mount(t);
   await app.click();
   assert.equal(app.calls.length, 1);
-  assert.equal(app.calls[0].token_hash, testToken);
-  assert.equal(app.calls[0].type, 'email');
+  assert.deepEqual({ ...app.calls[0] }, { token_hash: testToken, type: 'signup' });
   assert.equal(app.clients[0].key, 'test-only-publishable-key');
   assert.equal(app.clients[0].options.auth.persistSession, false);
   assert.equal(app.clients[0].options.auth.detectSessionInUrl, false);
@@ -159,7 +161,7 @@ test('Supabase token rejection shows expired/invalid only after confirmation', a
   assert.equal(app.calls.length, 1);
 });
 
-for (const query of ['type=email', 'token_hash=&type=email', 'token_hash=%20&type=email', `token_hash=${testToken}`, `token_hash=${testToken}&type=recovery`]) {
+for (const query of ['type=signup', 'token_hash=&type=signup', 'token_hash=%20&type=signup', `token_hash=${testToken}`, `token_hash=${testToken}&type=email`, `token_hash=${testToken}&type=recovery`, `token_hash=${testToken}&type=unknown`, `token_hash=${testToken}&type=`]) {
   test(`incomplete or unsupported query fails safely: ${query.replace(testToken, '[fixture]')}`, async (t) => {
     const app = await mount(t, { query });
     assert.equal(app.container.querySelector('h1').textContent, 'This confirmation link is incomplete.');
@@ -202,7 +204,7 @@ test('a changed link starts ready and ignores the previous link’s pending resu
   const pending = new Promise((done) => { resolve = done; });
   const app = await mount(t, { verify: () => pending });
   await app.click();
-  app.setQuery('token_hash=another-test-only-token&type=email');
+  app.setQuery('token_hash=another-test-only-token&type=signup');
   await app.render();
   await act(() => resolve({ error: null }));
   assert.equal(app.container.querySelector('button').textContent, 'Confirm email');
@@ -210,8 +212,8 @@ test('a changed link starts ready and ignores the previous link’s pending resu
   assert.equal(app.calls.length, 1);
 });
 
-test('email template retains the HTTPS confirmation link and TokenHash', () => {
+test('email template uses RedirectTo and TokenHash with signup confirmation type', () => {
   const template = readFileSync(new URL('../../../supabase/templates/confirm-signup.html', import.meta.url), 'utf8');
-  assert.match(template, /href="https:\/\/explore-wise\.fun\/auth\/confirm\?token_hash=\{\{ \.TokenHash \}\}&amp;type=email"/);
-  assert.doesNotMatch(template, /localhost|href="explorewise:|\.ConfirmationURL/);
+  assert.match(template, /href="\{\{ \.RedirectTo \}\}\?token_hash=\{\{ \.TokenHash \}\}&amp;type=signup"/);
+  assert.doesNotMatch(template, /localhost|href="explorewise:|\.ConfirmationURL|type=email/);
 });

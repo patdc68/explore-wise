@@ -16,7 +16,7 @@ const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
 }).outputText;
 const testToken = 'test-only-confirmation-token';
-const validQuery = `token_hash=${testToken}&type=signup`;
+const validQuery = `token_hash=${testToken}&type=email`;
 
 function fixture({ query = validQuery, configured = true, verify } = {}) {
   const calls = [];
@@ -103,11 +103,11 @@ test('initial load, Strict Mode effects and fresh search-param objects stay pass
   assert.ok(!app.container.innerHTML.includes(testToken));
 });
 
-test('explicit confirmation verifies once and exposes only the supported app link on success', async (t) => {
+test('explicit type=email confirmation verifies once and exposes only the supported app link on success', async (t) => {
   const app = await mount(t);
   await app.click();
   assert.equal(app.calls.length, 1);
-  assert.deepEqual({ ...app.calls[0] }, { token_hash: testToken, type: 'signup' });
+  assert.deepEqual({ ...app.calls[0] }, { token_hash: testToken, type: 'email' });
   assert.equal(app.clients[0].key, 'test-only-publishable-key');
   assert.equal(app.clients[0].options.auth.persistSession, false);
   assert.equal(app.clients[0].options.auth.detectSessionInUrl, false);
@@ -161,7 +161,7 @@ test('Supabase token rejection shows expired/invalid only after confirmation', a
   assert.equal(app.calls.length, 1);
 });
 
-for (const query of ['type=signup', 'token_hash=&type=signup', 'token_hash=%20&type=signup', `token_hash=${testToken}`, `token_hash=${testToken}&type=email`, `token_hash=${testToken}&type=recovery`, `token_hash=${testToken}&type=unknown`, `token_hash=${testToken}&type=`]) {
+for (const query of ['type=email', 'token_hash=&type=email', 'token_hash=%20&type=email', `token_hash=${testToken}`, `token_hash=${testToken}&type=signup`, `token_hash=${testToken}&type=recovery`, `token_hash=${testToken}&type=unknown`, `token_hash=${testToken}&type=`]) {
   test(`incomplete or unsupported query fails safely: ${query.replace(testToken, '[fixture]')}`, async (t) => {
     const app = await mount(t, { query });
     assert.equal(app.container.querySelector('h1').textContent, 'This confirmation link is incomplete.');
@@ -204,7 +204,7 @@ test('a changed link starts ready and ignores the previous link’s pending resu
   const pending = new Promise((done) => { resolve = done; });
   const app = await mount(t, { verify: () => pending });
   await app.click();
-  app.setQuery('token_hash=another-test-only-token&type=signup');
+  app.setQuery('token_hash=another-test-only-token&type=email');
   await app.render();
   await act(() => resolve({ error: null }));
   assert.equal(app.container.querySelector('button').textContent, 'Confirm email');
@@ -212,8 +212,8 @@ test('a changed link starts ready and ignores the previous link’s pending resu
   assert.equal(app.calls.length, 1);
 });
 
-test('email template uses RedirectTo and TokenHash with signup confirmation type', () => {
+test('email template uses RedirectTo and TokenHash with email confirmation type', () => {
   const template = readFileSync(new URL('../../../supabase/templates/confirm-signup.html', import.meta.url), 'utf8');
-  assert.match(template, /href="\{\{ \.RedirectTo \}\}\?token_hash=\{\{ \.TokenHash \}\}&amp;type=signup"/);
-  assert.doesNotMatch(template, /localhost|href="explorewise:|\.ConfirmationURL|type=email/);
+  assert.match(template, /href="\{\{ \.RedirectTo \}\}\?token_hash=\{\{ \.TokenHash \}\}&amp;type=email"/);
+  assert.doesNotMatch(template, /localhost|href="explorewise:|\.ConfirmationURL|type=signup/);
 });

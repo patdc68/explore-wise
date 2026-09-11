@@ -20,7 +20,7 @@ export function ConfirmClient() {
 function Confirmation({ tokenHash, type }: { tokenHash: string | null; type: string | null }) {
   const [status, setStatus] = useState<Status>('ready');
   const submitted = useRef(false);
-  const missing = !tokenHash?.trim() || type !== 'email';
+  const missing = !tokenHash?.trim() || type !== 'signup';
 
   async function confirmEmail() {
     if (missing || !tokenHash || submitted.current) return;
@@ -38,7 +38,7 @@ function Confirmation({ tokenHash, type }: { tokenHash: string | null; type: str
       const supabase = createClient(projectUrl, publishableKey, {
         auth: { persistSession: false, detectSessionInUrl: false, autoRefreshToken: false },
       });
-      const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'email' });
+      const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'signup' });
       setStatus(!error ? 'success' : error.code === 'otp_expired' ? 'invalid' : 'unavailable');
     } catch {
       // Do not log errors or expose request details containing the token.

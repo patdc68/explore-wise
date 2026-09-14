@@ -21,7 +21,7 @@ test('alternatives use human stage titles and selection preserves every other se
 test('View more is a pushed, vertical, paged alternatives route rather than a ninth place', () => {
   const plan = readFileSync(new URL('../src/app/(tabs)/plan.tsx', import.meta.url), 'utf8');
   const alternatives = readFileSync(new URL('../src/app/plan/alternatives.tsx', import.meta.url), 'utf8');
-  assert.match(plan, /kind: 'more'/);
+  assert.match(plan, /hasMoreOptions \? <SecondaryButton label="View more options"/);
   assert.match(plan, /router\.push\('\/plan\/alternatives'/);
   assert.match(plan, /hasMoreOptions=\{candidatePool\.length > shortlist\.length\}/);
   assert.match(plan, /accessibilityLabel="View more options"/);
@@ -30,16 +30,16 @@ test('View more is a pushed, vertical, paged alternatives route rather than a ni
   assert.match(alternatives, /onEndReached=\{loadMore\}/);
   assert.match(alternatives, /PriceSummary place=\{place\}/);
   assert.match(alternatives, /accessibilityLabel=\{`Select \$\{place\.name\}`\}/);
-  assert.match(alternatives, /Broader alternative/);
+  assert.match(alternatives, /BROADER ALTERNATIVE/);
   assert.match(alternatives, /broaderCandidateIds/);
 });
 
-test('an outside-shortlist selection is retained, selected, and snapped in the same Customize stage', () => {
+test('an outside-shortlist selection is retained and selected in the same Customize stage', () => {
   const plan = readFileSync(new URL('../src/app/(tabs)/plan.tsx', import.meta.url), 'utf8');
   assert.match(plan, /current\.some\(\(item\) => item\.place_id === place\.place_id\) \? current : \[place, \.\.\.current\]/);
   assert.match(plan, /shortlistWithSelectedCandidate/);
-  assert.match(plan, /onContentSizeChange=\{snapToSelected\}/);
-  assert.match(plan, /scrollToIndex\(\{ animated: true, index: selectedIndex, viewPosition: 0 \}\)/);
-  assert.match(plan, /Selected<\/ThemedText>/);
+  assert.match(plan, /candidates\.map\(\(place\) => <CustomizeCandidateCard/);
+  assert.doesNotMatch(plan, /snapToInterval/);
+  assert.match(plan, /selected=\{selectedId === place\.place_id\}/);
   assert.match(plan, /select: \(place\) => \{ updateStop\(place\); router\.back\(\); \}/);
 });

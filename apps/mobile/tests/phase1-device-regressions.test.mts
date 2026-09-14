@@ -44,8 +44,9 @@ test('finalized renderer keeps navigation and Start over but gates every normal 
   assert.match(planScreen, /editable \? <SecondaryButton label="Customize"/);
   assert.match(planScreen, /const canAdd = editable && state\.stages\.length < MAX_ITINERARY_STOPS/);
   assert.match(planScreen, /\{canAdd \? <SecondaryButton label="\+ Add another stop"/);
-  assert.match(planScreen, /state\.finalized && canNavigate\('finalized'\) && first/);
-  assert.match(planScreen, /<PrimaryButton label="Navigate to first stop"/);
+  assert.match(planScreen, /const isCurrent = execution\.status === 'in_progress' && status === 'current'/);
+  assert.match(planScreen, /onNavigate=\{state\.finalized && isCurrent \?/);
+  assert.doesNotMatch(planScreen, /label="Navigate to first stop"/);
   assert.match(planScreen, /function SelectedStops[\s\S]*?\{editable \? <SecondaryButton label=/);
   assert.match(planScreen, /onRemove=\{editable && stage\?\.source === 'user_added'/);
 });
@@ -75,7 +76,8 @@ test('proposal, Customize, review, and finalized use the shared Start over contr
   assert.match(startOverAction, /flexShrink: 0/);
   assert.doesNotMatch(startOverAction, /\bwidth:\s*\d+|\bmaxWidth:/);
   assert.doesNotMatch(startOverAction, /label="Start"|label='Start'/);
-  assert.match(planScreen, /Alert\.alert\(START_OVER_TITLE, START_OVER_MESSAGE, startOverConfirmation\(/);
+  assert.match(planScreen, /Alert\.alert\(START_OVER_TITLE, active \? 'This will remove your itinerary and all completed or skipped stop progress\.' : START_OVER_MESSAGE, startOverConfirmation\(/);
+  assert.match(planScreen, /if \(active && !await executionStore\.clear\(active\.execution\.itineraryId\)\) return; const cleared = emptyPlanningSession\(\)/);
   let confirmed = false;
   const actions = startOverConfirmation(() => { confirmed = true; });
   assert.deepEqual(actions.map((action) => action.text), ['Cancel', 'Start over']);
@@ -83,22 +85,22 @@ test('proposal, Customize, review, and finalized use the shared Start over contr
   assert.equal(confirmed, true);
 });
 
-test('proposal actions keep their full accessible labels and existing handlers while busy', () => {
+test('proposal actions expose the approved hierarchy with full accessible labels and existing handlers', () => {
   const proposalCard = readFileSync(new URL('../src/components/wise-proposal-card.tsx', import.meta.url), 'utf8');
-  assert.match(proposalCard, /label="Customize" accessibilityLabel="Customize" labelNumberOfLines=\{1\} onPress=\{onCustomize\}/);
-  assert.match(proposalCard, /label="Try another" accessibilityLabel="Try another" labelNumberOfLines=\{1\} onPress=\{onTryAnother\}/);
-  assert.match(proposalCard, /disabled=\{busy\} label="Customize"/);
-  assert.match(proposalCard, /disabled=\{busy\} label="Try another"/);
-  assert.match(proposalCard, /secondary: \{ flexDirection: 'row', flexWrap: 'wrap', gap: Spacing\.sm \}/);
-  assert.match(proposalCard, /secondaryAction: \{ flexBasis: 120, flexGrow: 1, flexShrink: 0, minWidth: 120, paddingHorizontal: Spacing\.sm \}/);
+  assert.match(proposalCard, /<PrimaryButton disabled=\{busy \|\| stops\.length === 0\}[\s\S]*?accessibilityLabel="Build this plan"[\s\S]*?onPress=\{onUse\}/);
+  assert.match(proposalCard, /<SecondaryButton disabled=\{busy\} label="Customize stops" accessibilityLabel="Customize stops" labelNumberOfLines=\{1\} onPress=\{onCustomize\}/);
+  assert.match(proposalCard, /<TertiaryButton disabled=\{busy\} label="Try another idea" accessibilityLabel="Try another idea" labelNumberOfLines=\{1\} onPress=\{onTryAnother\}/);
+  assert.match(proposalCard, /<View style=\{styles\.actions\}>/);
+  assert.match(proposalCard, /fullWidth \/>/);
   assert.doesNotMatch(proposalCard, /label="Try"|label="Try again"/);
 });
 
-test('Customize uses the accessible focused horizontal candidate carousel', () => {
+test('Customize exposes compact vertical alternatives with the same selection callbacks', () => {
   const planScreen = readFileSync(new URL('../src/app/(tabs)/plan.tsx', import.meta.url), 'utf8');
-  assert.match(planScreen, /<FlatList[\s\S]*?horizontal[\s\S]*?showsHorizontalScrollIndicator=\{false\}[\s\S]*?snapToAlignment="start"[\s\S]*?snapToInterval=\{snapInterval\}/);
-  assert.match(planScreen, /const cardWidth = Math\.floor\(Math\.max\(1, width - Spacing\.md \* 2\) \* 0\.86\)/);
-  assert.match(planScreen, /\{focusedIndex \+ 1\} of \{candidates\.length\}/);
+  assert.match(planScreen, /candidates\.map\(\(place\) => <CustomizeCandidateCard/);
+  assert.match(planScreen, /onSelect=\{\(\) => onSelect\(place\)\}/);
+  assert.match(planScreen, /onHighlight=\{\(\) => onHighlight\(place\.place_id\)\}/);
+  assert.doesNotMatch(planScreen, /snapToInterval|cardWidth/);
   const guided = planScreen.slice(planScreen.indexOf("if (screen === 'guided')"), planScreen.indexOf('const complete ='));
   assert.match(guided, /<CandidateList title=\{stageSelectionHeading\(currentStage\)\}/);
   assert.doesNotMatch(guided, /<SelectedStops/);

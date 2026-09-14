@@ -2,42 +2,68 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Radius, Spacing, Typography } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { ClayCard, IconButton } from '@/components/ui/clay';
+import { Radius, Spacing, TouchTarget, Typography } from '@/constants/theme';
+import { useDesignTheme } from '@/hooks/use-theme';
 import { formatDistance, type NearbyPlace, type PricedNearbyPlace } from '@/services/places';
 import { PriceSummary } from './price-summary';
-import { DiscoverySurface } from './discovery-surface';
+import { PlaceVisual } from './place-visual';
 
-type PlaceCardProps = { place: NearbyPlace | PricedNearbyPlace; isFavorite: boolean; onPress: () => void; onToggleFavorite: () => void };
+type PlaceCardProps = { place: NearbyPlace | PricedNearbyPlace; realImageUrl?: string | null; isFavorite: boolean; onPress: () => void; onToggleFavorite: () => void };
 
-export function PlaceCard({ place, isFavorite, onPress, onToggleFavorite }: PlaceCardProps) {
-  const theme = useTheme();
-  const locality = [place.address, place.city].filter(Boolean).join(', ') || place.region;
+export function PlaceCard({ place, realImageUrl, isFavorite, onPress, onToggleFavorite }: PlaceCardProps) {
+  const theme = useDesignTheme();
+  const locality = place.city || place.region;
   const distance = formatDistance(place.distance_meters);
-  return <DiscoverySurface style={styles.card}>
-    <View style={styles.headerRow}>
-      <View style={[styles.categoryIcon, { backgroundColor: theme.accentSoft }]}><Ionicons name="compass" size={17} color={theme.text} /></View>
-      <View style={styles.categoryCopy}><ThemedText type="smallBold" themeColor="textSecondary" style={styles.category} numberOfLines={1}>{place.category_name}</ThemedText>{distance ? <ThemedText type="smallBold">{distance}</ThemedText> : null}</View>
-    </View>
-    <Pressable accessibilityRole="button" accessibilityLabel={`View details for ${place.name}`} onPress={onPress} style={({ pressed }) => [styles.detailsPressable, pressed && styles.pressed]}>
-      <ThemedText style={styles.name} numberOfLines={2}>{place.name}</ThemedText>
-      {locality ? <ThemedText type="small" themeColor="textSecondary" numberOfLines={2}>{locality}</ThemedText> : null}
-    </Pressable>
-    {'has_price' in place ? <PriceSummary place={place} /> : null}
-    <Pressable accessibilityRole="button" accessibilityLabel={isFavorite ? `Remove ${place.name} from favorites` : `Save ${place.name} to favorites`} onPress={onToggleFavorite} hitSlop={8} style={({ pressed }) => [styles.favorite, { backgroundColor: theme.elevatedSurface, borderColor: theme.border }, pressed && styles.pressed]}>
-      <Ionicons color={isFavorite ? theme.error : theme.textSecondary} name={isFavorite ? 'heart' : 'heart-outline'} size={20} />
-    </Pressable>
-  </DiscoverySurface>;
+  return (
+    <ClayCard variant="subtle" padding="none" style={styles.card}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`View details for ${place.name}`}
+        onPress={onPress}
+        style={({ pressed }) => [styles.details, pressed && styles.pressed]}>
+        <PlaceVisual place={place} placeId={place.place_id} realImageUrl={realImageUrl} tile />
+        <View style={styles.content}>
+          <View style={styles.identity}>
+            <ThemedText style={Typography.metadata} themeColor="muted">{place.category_name}</ThemedText>
+            <ThemedText style={Typography.cardTitle}>{place.name}</ThemedText>
+          </View>
+          {locality ? <ThemedText style={Typography.caption} themeColor="textSecondary">{locality}</ThemedText> : null}
+          <View style={[styles.metadata, { backgroundColor: theme.background.canvas }]}>
+            {'has_price' in place ? <View style={styles.price}><PriceSummary place={place} compact /></View> : null}
+            {distance ? (
+              <View style={styles.distance}>
+                <Ionicons name="navigate-outline" color={theme.text.secondary} size={14} accessible={false} />
+                <ThemedText style={styles.distanceText} themeColor="textSecondary">{distance}</ThemedText>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </Pressable>
+      <View style={styles.favorite}>
+        <IconButton
+          accessibilityLabel={isFavorite ? `Remove ${place.name} from favorites` : `Save ${place.name} to favorites`}
+          selected={isFavorite}
+          onPress={onToggleFavorite}
+          variant="ghost"
+          style={styles.heart}
+          icon={<Ionicons accessible={false} color={isFavorite ? theme.semantic.error.default : theme.text.secondary} name={isFavorite ? 'heart' : 'heart-outline'} size={20} />}
+        />
+      </View>
+    </ClayCard>
+  );
 }
 
 const styles = StyleSheet.create({
-  card: { gap: Spacing.sm, minHeight: 150 },
-  headerRow: { alignItems: 'center', flexDirection: 'row', gap: Spacing.sm },
-  categoryIcon: { alignItems: 'center', borderRadius: 13, height: 38, justifyContent: 'center', width: 38 },
-  categoryCopy: { flex: 1, gap: 1 },
-  category: { fontSize: 11, letterSpacing: 0.6, textTransform: 'uppercase' },
-  detailsPressable: { gap: 2, paddingRight: 42 },
-  name: Typography.cardTitle,
-  favorite: { alignItems: 'center', borderRadius: Radius.chip, borderWidth: 1, height: 38, justifyContent: 'center', position: 'absolute', right: Spacing.md, top: Spacing.md, width: 38 },
-  pressed: { opacity: 0.76, transform: [{ translateY: 1 }] },
+  card: { overflow: 'hidden', borderRadius: Radius.card },
+  identity: { paddingRight: TouchTarget.minimum - Spacing.sm },
+  heart: { borderWidth: 0, width: TouchTarget.minimum, height: TouchTarget.minimum },
+  favorite: { position: 'absolute', right: Spacing.sm, top: Spacing.sm },
+  content: { flex: 1, gap: Spacing.xs, minWidth: 0 },
+  details: { alignItems: 'stretch', flexDirection: 'row', gap: Spacing.mdCompact, minHeight: TouchTarget.comfortable, minWidth: 0, padding: Spacing.sm },
+  metadata: { borderRadius: Radius.row, padding: Spacing.sm, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', columnGap: Spacing.sm, rowGap: Spacing.xs },
+  price: { flexGrow: 1, maxWidth: '100%' },
+  distance: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, maxWidth: '100%', paddingVertical: Spacing.half },
+  distanceText: { ...Typography.metadata, flexShrink: 1 },
+  pressed: { opacity: 0.76 },
 });

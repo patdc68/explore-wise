@@ -1,38 +1,137 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { StyleSheet, View } from 'react-native';
 
 import { PriceSummary } from '@/components/discovery/price-summary';
+import { PlaceVisual } from '@/components/discovery/place-visual';
 import { ItineraryMap } from '@/components/itinerary/itinerary-map';
 import { StartOverAction } from '@/components/itinerary/start-over-action';
 import { ThemedText } from '@/components/themed-text';
-import { ClaySurface, PrimaryButton, SecondaryButton } from '@/components/ui/clay';
-import { Spacing, Typography } from '@/constants/theme';
+import { ClayCard, MetadataBadge, PrimaryButton, ScreenSection, SecondaryButton, SectionHeader, TertiaryButton } from '@/components/ui/clay';
+import { Radius, Spacing, Typography } from '@/constants/theme';
+import { useDesignTheme } from '@/hooks/use-theme';
+import { foodFocusLabel } from '@/services/food-candidate-diversity';
 import { remainingBudget } from '@/services/itinerary';
 import { formatPhp } from '@/services/money';
-import { proposalRationale, type WiseProposal } from '@/services/wise-proposal';
-import { foodFocusLabel } from '@/services/food-candidate-diversity';
 import { sequentialStopDistances } from '@/services/planning-distance';
+import { proposalRationale, type WiseProposal } from '@/services/wise-proposal';
 
 export function WiseProposalCard({ proposal, requestText, onUse, onCustomize, onTryAnother, onStartOver, busy }: { proposal: WiseProposal; requestText: string | null; onUse: () => void; onCustomize: () => void; onTryAnother: () => void; onStartOver: () => void; busy: boolean }) {
-  const totals = remainingBudget(proposal.state); const stops = proposal.state.stops; const distances = sequentialStopDistances(proposal.state);
+  const theme = useDesignTheme();
+  const totals = remainingBudget(proposal.state);
+  const stops = proposal.state.stops;
+  const distances = sequentialStopDistances(proposal.state);
+
   return <View style={styles.wrap}>
-    <ClaySurface elevation="raised" style={styles.userBubble}><ThemedText type="smallBold">You</ThemedText><ThemedText type="small">{requestText || 'Your planning request'}</ThemedText></ClaySurface>
-    <ClaySurface elevation="raised" style={styles.response}>
-      <ThemedText type="smallBold" themeColor="textSecondary" style={styles.eyebrow}>WISE</ThemedText>
-      <ThemedText style={Typography.cardTitle}>{proposal.missingStageIds.length ? 'Here’s what I found for your plan' : 'Here’s a plan for you'}</ThemedText>
-      {stops.map((stop, index) => { const stage = proposal.state.stages.find((item) => item.id === stop.stageId)!; const distance = distances[index]?.label; return <ClaySurface key={stop.stageId} elevation="subtle" style={styles.stage}><View style={styles.stageHeader}><View style={styles.number}><ThemedText type="smallBold">{index + 1}</ThemedText></View><View style={styles.stageCopy}><ThemedText type="smallBold">{stage.title}</ThemedText>{stage.source === 'wise' && !stage.required ? <ThemedText type="small" themeColor="textSecondary">Wise suggestion · optional</ThemedText> : null}<ThemedText style={Typography.cardTitle}>{stop.place.name}</ThemedText>{distance ? <ThemedText type="small" themeColor="textSecondary">{distance}</ThemedText> : null}</View></View><PriceSummary place={stop.place} /><ThemedText type="small" themeColor="textSecondary">{proposalRationale(stage, index)}</ThemedText></ClaySurface>; })}
-      {proposal.explicitFoodNoMatch ? <ThemedText type="small" themeColor="textSecondary">No strong {foodFocusLabel(proposal.explicitFoodNoMatch)} matches found nearby. Customize to view broader food alternatives.</ThemedText> : proposal.missingStageIds.length ? <ThemedText type="small" themeColor="textSecondary">I found {stops.length === 1 ? 'one stop' : stops.length + ' stops'}, but couldn’t find a suitable option for every requested part nearby. You can customize this plan or try another request.</ThemedText> : null}
-      <Budget proposal={proposal} totals={totals} />
-      <View style={styles.map}><ItineraryMap start={proposal.state.start} candidates={[]} selected={stops.map((stop) => stop.place)} highlightedId={null} onPressCandidate={() => {}} /></View>
-      <PrimaryButton disabled={busy || stops.length === 0} label={busy ? 'Working…' : 'Use this plan'} onPress={onUse} />
-      <View style={styles.secondary}><SecondaryButton disabled={busy} label="Customize" accessibilityLabel="Customize" labelNumberOfLines={1} onPress={onCustomize} style={styles.secondaryAction} /><SecondaryButton disabled={busy} label="Try another" accessibilityLabel="Try another" labelNumberOfLines={1} onPress={onTryAnother} style={styles.secondaryAction} /></View>
+    <View style={styles.requestContext}>
+      <View style={[styles.requestIcon, { backgroundColor: theme.accent.primarySoft }]}>
+        <Ionicons name="chatbubble-ellipses-outline" size={18} color={theme.text.primary} accessible={false} />
+      </View>
+      <View style={styles.requestCopy}>
+        <ThemedText style={Typography.caption} themeColor="muted">YOUR REQUEST</ThemedText>
+        <ThemedText style={Typography.bodySecondary}>{requestText || 'Your planning request'}</ThemedText>
+      </View>
+    </View>
+
+    <Budget proposal={proposal} totals={totals} />
+
+    <ScreenSection>
+      <SectionHeader title="Plan overview" description="Your proposed stops in sequence." />
+      <ClayCard variant="subtle" padding="none" style={styles.map}>
+        <ItineraryMap compact start={proposal.state.start} candidates={[]} selected={stops.map((stop) => stop.place)} highlightedId={null} onPressCandidate={() => {}} />
+      </ClayCard>
+    </ScreenSection>
+
+    <ScreenSection>
+      <SectionHeader title="Proposed stops" description={`${stops.length} ${stops.length === 1 ? 'place' : 'places'} selected`} />
+      <View style={styles.stops}>
+        {stops.map((stop, index) => {
+          const stage = proposal.state.stages.find((item) => item.id === stop.stageId)!;
+          const distance = distances[index]?.label;
+          return <View key={stop.stageId} style={styles.sequence}>
+            <View style={styles.rail}><View style={[styles.number, { backgroundColor: theme.accent.primary }]}><ThemedText style={[Typography.badge, { color: theme.accent.onPrimary }]}>{index + 1}</ThemedText></View><View style={[styles.thread, { backgroundColor: theme.border.subtle }]} /></View>
+            <View style={[styles.stage, { backgroundColor: theme.background.surface, borderColor: theme.border.subtle }]}>
+            <View style={styles.stageHeader}>
+              <View style={styles.stageCopy}>
+                <ThemedText style={Typography.caption} themeColor="muted">{stage.title.toUpperCase()}</ThemedText>
+                <ThemedText style={Typography.cardTitle}>{stop.place.name}</ThemedText>
+                {distance ? <ThemedText style={Typography.metadata} themeColor="textSecondary">{distance}</ThemedText> : null}
+              </View>
+              <PlaceVisual place={stop.place} placeId={stop.place.place_id} thumbnail />
+            </View>
+            <PriceSummary place={stop.place} compact />
+            <ThemedText style={Typography.bodySecondary} themeColor="textSecondary">{proposalRationale(stage, index)}</ThemedText>
+            {stage.source === 'wise' && !stage.required ? <MetadataBadge label="Wise suggestion · optional" /> : null}
+            </View>
+          </View>;
+        })}
+      </View>
+    </ScreenSection>
+
+    {proposal.explicitFoodNoMatch ? <ClayCard variant="subtle" style={styles.note}><ThemedText style={Typography.label}>No strong {foodFocusLabel(proposal.explicitFoodNoMatch)} match nearby</ThemedText><ThemedText style={Typography.bodySecondary} themeColor="textSecondary">Customize to review broader food alternatives without presenting them as matches.</ThemedText></ClayCard> : proposal.missingStageIds.length ? <ClayCard variant="subtle" style={styles.note}><ThemedText style={Typography.label}>Some requested stops are still open</ThemedText><ThemedText style={Typography.bodySecondary} themeColor="textSecondary">Wise found {stops.length === 1 ? 'one suitable stop' : `${stops.length} suitable stops`}. Customize the plan or try another idea.</ThemedText></ClayCard> : null}
+
+    <View style={styles.actions}>
+      <PrimaryButton disabled={busy || stops.length === 0} label={busy ? 'Working…' : 'Build this plan'} accessibilityLabel="Build this plan" labelNumberOfLines={1} onPress={onUse} fullWidth />
+      <SecondaryButton disabled={busy} label="Customize stops" accessibilityLabel="Customize stops" labelNumberOfLines={1} onPress={onCustomize} fullWidth />
+      <TertiaryButton disabled={busy} label="Try another idea" accessibilityLabel="Try another idea" labelNumberOfLines={1} onPress={onTryAnother} fullWidth />
       <StartOverAction onPress={onStartOver} />
-    </ClaySurface>
+    </View>
   </View>;
 }
 
 function Budget({ proposal, totals }: { proposal: WiseProposal; totals: ReturnType<typeof remainingBudget> }) {
-  if (totals.uncertain) { const knownSpend = totals.knownStopCount === 0 ? 'Not available yet' : totals.minAmountMinor === totals.maxAmountMinor ? formatPhp(totals.minAmountMinor) : formatPhp(totals.minAmountMinor) + '–' + formatPhp(totals.maxAmountMinor); return <ClaySurface elevation="subtle" style={styles.budget}><ThemedText type="smallBold">BUDGET STATUS · PARTIALLY KNOWN</ThemedText><ThemedText type="small">Known spend: {knownSpend}</ThemedText><ThemedText type="small" themeColor="textSecondary">{totals.knownStopCount === 0 ? 'No selected stops have reliable pricing yet.' : totals.unknownStopCount + (totals.unknownStopCount === 1 ? ' stop has price unavailable.' : ' stops have price unavailable.')}</ThemedText></ClaySurface>; }
-  return <ClaySurface elevation="subtle" style={styles.budget}><ThemedText type="smallBold">ESTIMATED PLAN SPEND</ThemedText><ThemedText style={Typography.cardTitle}>{formatPhp(totals.minAmountMinor)}–{formatPhp(totals.maxAmountMinor)}</ThemedText><ThemedText type="small">Budget {formatPhp(proposal.state.budgetMinor)} · Remaining {formatPhp(totals.conservativeMinor!)}–{formatPhp(totals.optimisticMinor!)}</ThemedText></ClaySurface>;
+  const theme = useDesignTheme();
+  const knownSpend = totals.knownStopCount === 0
+    ? 'Not available yet'
+    : totals.minAmountMinor === totals.maxAmountMinor
+      ? formatPhp(totals.minAmountMinor)
+      : `${formatPhp(totals.minAmountMinor)}–${formatPhp(totals.maxAmountMinor)}`;
+  const remaining = totals.uncertain || totals.conservativeMinor === null || totals.optimisticMinor === null
+    ? 'Partially known'
+    : totals.conservativeMinor === totals.optimisticMinor
+      ? formatPhp(totals.conservativeMinor)
+      : `${formatPhp(totals.conservativeMinor)}–${formatPhp(totals.optimisticMinor)}`;
+  return <ClayCard variant="default" style={[styles.budget, { backgroundColor: theme.accent.primarySoft, borderColor: theme.border.subtle }]}>
+    <View style={styles.budgetHeading}>
+      <View style={[styles.budgetIcon, { backgroundColor: theme.accent.primarySoft }]}><Ionicons name="wallet-outline" size={18} color={theme.text.primary} accessible={false} /></View>
+      <View style={styles.requestCopy}>
+        <ThemedText style={Typography.caption} themeColor="muted">BUDGET SUMMARY</ThemedText>
+        <ThemedText style={Typography.label}>{totals.uncertain ? 'Available prices are partially known' : 'Available prices are fully known'}</ThemedText>
+      </View>
+    </View>
+    <View style={[styles.budgetGrid, { borderTopColor: theme.border.subtle }]}>
+      <BudgetMetric label="Planned budget" value={formatPhp(proposal.state.budgetMinor)} />
+      <BudgetMetric label={totals.uncertain ? 'Known estimates' : 'Plan estimate'} value={knownSpend} />
+    </View>
+    <View style={styles.budgetRemainder}><ThemedText style={Typography.caption} themeColor="muted">Remaining</ThemedText><ThemedText style={Typography.label}>{remaining}</ThemedText></View>
+    {totals.uncertain ? <ThemedText style={Typography.caption} themeColor="muted">{totals.knownStopCount === 0 ? 'No proposed stops have reliable pricing yet.' : `${totals.unknownStopCount} ${totals.unknownStopCount === 1 ? 'stop has' : 'stops have'} price unavailable.`}</ThemedText> : null}
+  </ClayCard>;
 }
 
-const styles = StyleSheet.create({ wrap: { gap: Spacing.md }, userBubble: { alignSelf: 'flex-end', gap: 4, maxWidth: '88%' }, response: { gap: Spacing.md }, eyebrow: { fontSize: 11, letterSpacing: 1.1 }, stage: { gap: Spacing.xs, padding: Spacing.sm }, stageHeader: { alignItems: 'center', flexDirection: 'row', gap: Spacing.sm }, stageCopy: { flex: 1, gap: 2 }, number: { alignItems: 'center', backgroundColor: '#C8F04A', borderRadius: 12, height: 30, justifyContent: 'center', width: 30 }, budget: { gap: 4, padding: Spacing.sm }, map: { overflow: 'hidden' }, secondary: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm }, secondaryAction: { flexBasis: 120, flexGrow: 1, flexShrink: 0, minWidth: 120, paddingHorizontal: Spacing.sm } });
+function BudgetMetric({ label, value }: { label: string; value: string }) {
+  return <View style={styles.metric}><ThemedText style={Typography.caption} themeColor="muted">{label}</ThemedText><ThemedText style={Typography.cardTitle}>{value}</ThemedText></View>;
+}
+
+const styles = StyleSheet.create({
+  wrap: { gap: Spacing.lg },
+  requestContext: { alignItems: 'flex-start', flexDirection: 'row', gap: Spacing.sm },
+  requestIcon: { alignItems: 'center', borderRadius: Radius.pill, height: 36, justifyContent: 'center', width: 36 },
+  requestCopy: { flex: 1, minWidth: 0, gap: Spacing.xs },
+  intro: { gap: Spacing.sm },
+  budget: { gap: Spacing.mdCompact },
+  budgetRemainder: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: Spacing.sm },
+  budgetHeading: { alignItems: 'center', flexDirection: 'row', gap: Spacing.sm },
+  budgetIcon: { alignItems: 'center', borderRadius: Radius.small, height: 38, justifyContent: 'center', width: 38 },
+  budgetGrid: { borderTopWidth: 1, flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.mdCompact, paddingTop: Spacing.mdCompact },
+  metric: { flexBasis: 96, flexGrow: 1, gap: Spacing.xs, minWidth: 0 },
+  map: { overflow: 'hidden' },
+  stops: { gap: Spacing.lg },
+  sequence: { flexDirection: 'row', gap: Spacing.mdCompact },
+  rail: { alignItems: 'center', width: 28 },
+  thread: { width: 1, flex: 1, marginTop: Spacing.sm },
+  stage: { flex: 1, minWidth: 0, borderWidth: 1, borderRadius: Radius.row, padding: Spacing.md, gap: Spacing.sm },
+  stageHeader: { alignItems: 'flex-start', flexDirection: 'row', gap: Spacing.sm },
+  stageCopy: { flex: 1, gap: Spacing.xs, minWidth: 0 },
+  number: { alignItems: 'center', borderRadius: Radius.pill, height: 28, justifyContent: 'center', width: 28 },
+  note: { gap: Spacing.xs },
+  actions: { gap: Spacing.sm },
+});

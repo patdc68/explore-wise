@@ -59,17 +59,15 @@ test('Customize navigation keeps one active stage, supports Back, and gates revi
   assert.deepEqual(customizeNavigation(completed, 1), { backDisabled: false, canContinue: true, primaryLabel: 'Review your plan', review: true });
 });
 
-test('Customize renders one responsive horizontal candidate carousel without guided Replace cards', () => {
+test('Customize renders responsive vertical candidate rows without guided Replace cards', () => {
   const planScreen = readFileSync(new URL('../src/app/(tabs)/plan.tsx', import.meta.url), 'utf8');
   const guided = planScreen.slice(planScreen.indexOf("if (screen === 'guided')"), planScreen.indexOf("const complete ="));
   assert.match(guided, /<CandidateList title=\{stageSelectionHeading\(currentStage\)\}/);
   assert.match(guided, /<StartOverAction onPress=\{clearPlan\}/);
   assert.doesNotMatch(guided, /<SelectedStops/);
   assert.doesNotMatch(guided, /Replace \$\{/);
-  assert.match(planScreen, /<FlatList[^>]*horizontal/);
-  assert.match(planScreen, /showsHorizontalScrollIndicator=\{false\}/);
-  assert.match(planScreen, /decelerationRate="fast"/);
-  assert.match(planScreen, /snapToInterval=\{snapInterval\}/);
-  assert.match(planScreen, /width - Spacing\.md \* 2\) \* 0\.86/);
-  assert.match(planScreen, /\{focusedIndex \+ 1\} of \{candidates\.length\}/);
+  assert.match(planScreen, /candidates\.map\(\(place\) => <CustomizeCandidateCard/);
+  assert.match(planScreen, /selected=\{selectedId === place\.place_id\}/);
+  assert.match(planScreen, /onSelect=\{\(\) => onSelect\(place\)\}/);
+  assert.doesNotMatch(planScreen, /snapToInterval|cardWidth/);
 });

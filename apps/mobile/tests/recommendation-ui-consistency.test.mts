@@ -69,5 +69,5 @@ test('loading, empty selection, and valid selection expose truthful progression 
   assert.equal(customizeNavigation(selected, 0, { currentSelectionValid: true }).canContinue, true);
   const clay = readFileSync(new URL('../src/components/ui/clay.tsx', import.meta.url), 'utf8');
   assert.match(clay, /accessibilityState=\{\{ disabled: Boolean\(disabled\) \}\}/);
-  assert.match(clay, /disabled \? styles\.buttonDisabled : Shadows\.raised/);
+  assert.match(clay, /disabled \? styles\.buttonDisabled : elevation\.raised/);
 });

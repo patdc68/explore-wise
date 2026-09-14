@@ -1,10 +1,12 @@
 import type { Session, User } from '@supabase/supabase-js';
 import { AppState } from 'react-native';
-import * as Linking from 'expo-linking';
+import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from 'react';
 
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase';
+import { googleCallbackRoute, googleOAuth, googleRedirectUrl } from '@/services/google-oauth';
+import { OAUTH_CALLBACK_ERROR } from '@/services/oauth-callback';
 
 type AuthContextValue = {
   user: User | null;
@@ -12,7 +14,8 @@ type AuthContextValue = {
   initializing: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, displayName?: string) => Promise<{ needsEmailConfirmation: boolean }>;
-  signInWithGoogle: () => Promise<'success' | 'cancelled'>;
+  signInWithGoogle: () => Promise<'redirected' | 'cancelled'>;
+  completeGoogleCallback: (attempt: string) => Promise<Session>;
   signOut: () => Promise<void>;
   queueAfterAuthentication: (action: () => void | Promise<void>) => void;
   completeQueuedAction: () => Promise<void>;
@@ -58,23 +61,33 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const signIn = useCallback(async (email: string, password: string) => { const { error } = await getSupabaseClient().auth.signInWithPassword({ email: email.trim(), password }); if (error) throw new Error(friendlyAuthError(error.message)); }, []);
   const signUp = useCallback(async (email: string, password: string, displayName?: string) => { const { data, error } = await getSupabaseClient().auth.signUp({ email: email.trim(), password, options: { emailRedirectTo: 'https://explore-wise.fun/auth/confirm', data: displayName?.trim() ? { display_name: displayName.trim() } : {} } }); if (error) throw new Error(friendlyAuthError(error.message)); return { needsEmailConfirmation: !data.session }; }, []);
-  const signInWithGoogle = useCallback(async (): Promise<'success' | 'cancelled'> => {
-    const redirectTo = Linking.createURL('auth/callback');
-    const { data, error } = await getSupabaseClient().auth.signInWithOAuth({ provider: 'google', options: { redirectTo, skipBrowserRedirect: true } });
-    if (error || !data.url) throw new Error(friendlyAuthError(error?.message ?? 'Google sign-in is unavailable.'));
-    const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
-    if (result.type !== 'success') return 'cancelled';
-    const parsed = Linking.parse(result.url); const code = typeof parsed.queryParams?.code === 'string' ? parsed.queryParams.code : null;
-    const accessToken = typeof parsed.queryParams?.access_token === 'string' ? parsed.queryParams.access_token : null;
-    const refreshToken = typeof parsed.queryParams?.refresh_token === 'string' ? parsed.queryParams.refresh_token : null;
-    const response = code ? await getSupabaseClient().auth.exchangeCodeForSession(code) : accessToken && refreshToken ? await getSupabaseClient().auth.setSession({ access_token: accessToken, refresh_token: refreshToken }) : { error: new Error('Google sign-in did not return a session.') };
-    if (response.error) throw new Error(friendlyAuthError(response.error.message));
-    return 'success';
+  const signInWithGoogle = useCallback(async (): Promise<'redirected' | 'cancelled'> => {
+    try {
+      const redirectTo = googleRedirectUrl();
+      const { data, error } = await getSupabaseClient().auth.signInWithOAuth({ provider: 'google', options: { redirectTo, skipBrowserRedirect: true } });
+      if (error || !data.url) throw new Error();
+      // SDK 57 owns Android's browser/Linking subscription and its cleanup.
+      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+      if (result.type !== 'success') return 'cancelled';
+      const route = await googleCallbackRoute(result.url);
+      if (!googleOAuth.isHandled(route.params.attempt)) router.navigate(route);
+      return 'redirected';
+    } catch {
+      throw new Error(OAUTH_CALLBACK_ERROR);
+    }
+  }, []);
+  const completeGoogleCallback = useCallback(async (attempt: string) => {
+    const nextSession = await googleOAuth.complete(attempt, getSupabaseClient().auth);
+    // Supabase also emits SIGNED_IN; explicitly synchronize context before the
+    // callback screen resumes any queued action after its next render.
+    setSession(nextSession);
+    setInitializing(false);
+    return nextSession;
   }, []);
   const signOut = useCallback(async () => { const { error } = await getSupabaseClient().auth.signOut(); if (error) throw new Error(friendlyAuthError(error.message)); }, []);
   const queueAfterAuthentication = useCallback((action: () => void | Promise<void>) => { queuedAction.current = action; }, []);
   const completeQueuedAction = useCallback(async () => { const action = queuedAction.current; queuedAction.current = null; if (action) await action(); }, []);
-  const value = useMemo(() => ({ user: session?.user ?? null, session, initializing, signIn, signUp, signInWithGoogle, signOut, queueAfterAuthentication, completeQueuedAction }), [completeQueuedAction, initializing, queueAfterAuthentication, session, signIn, signInWithGoogle, signOut, signUp]);
+  const value = useMemo(() => ({ user: session?.user ?? null, session, initializing, signIn, signUp, signInWithGoogle, completeGoogleCallback, signOut, queueAfterAuthentication, completeQueuedAction }), [completeGoogleCallback, completeQueuedAction, initializing, queueAfterAuthentication, session, signIn, signInWithGoogle, signOut, signUp]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

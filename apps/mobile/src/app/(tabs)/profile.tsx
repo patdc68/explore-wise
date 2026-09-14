@@ -1,18 +1,64 @@
+import { useFloatingTabInset } from '@/hooks/use-floating-tab-inset';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useRouter } from 'expo-router';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 
-import { StateCard } from '@/components/discovery/state-card';
+import { AppearanceSetting } from '@/components/appearance-setting';
 import { ThemedText } from '@/components/themed-text';
-import { ClaySurface, PrimaryButton, SecondaryButton } from '@/components/ui/clay';
-import { MaxContentWidth, Spacing, Typography } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import { ClayCard, PrimaryButton, ScreenSection, SecondaryButton, SectionHeader, TertiaryButton } from '@/components/ui/clay';
+import { MaxContentWidth, Radius, Spacing, Typography } from '@/constants/theme';
+import { useDesignTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/providers/auth-provider';
 
 export default function ProfileScreen() {
-  const theme = useTheme(); const router = useRouter(); const { user, signOut } = useAuth();
+  const bottomInset = useFloatingTabInset();
+  const theme = useDesignTheme();
+  const router = useRouter();
+  const { user, signOut } = useAuth();
   const leave = async () => { try { await signOut(); } catch { Alert.alert('Could not sign out', 'Please try again.'); } };
-  return <View style={[styles.screen, { backgroundColor: theme.background }]}><SafeAreaView edges={['top']} style={styles.safe}><ScrollView contentContainerStyle={styles.content}><View style={styles.heading}><ThemedText type="smallBold" themeColor="textSecondary" style={styles.eyebrow}>YOUR EXPLOREWISE</ThemedText><ThemedText style={Typography.screenHeading}>Profile</ThemedText><ThemedText type="small" themeColor="textSecondary">Favorites and community contributions stay connected to your account.</ThemedText></View>{!user ? <><ClaySurface elevation="raised" style={styles.profile}><View style={[styles.avatar, { backgroundColor: theme.accent }]}><Ionicons name="person" size={26} color={theme.accentText} /></View><View style={styles.copy}><ThemedText style={Typography.cardTitle}>ExploreWise Profile</ThemedText><ThemedText type="small" themeColor="textSecondary">Sign in to save favorites, contribute ratings and prices, and keep future plans.</ThemedText></View></ClaySurface><PrimaryButton label="Sign In" onPress={() => router.push('/auth/sign-in')} /><SecondaryButton label="Create Account" onPress={() => router.push('/auth/sign-up')} /></> : <><ClaySurface elevation="raised" style={styles.profile}><View style={[styles.avatar, { backgroundColor: theme.accent }]}><Ionicons name="person" size={26} color={theme.accentText} /></View><View style={styles.copy}><ThemedText style={Typography.cardTitle}>{user.user_metadata.display_name || 'ExploreWise member'}</ThemedText><ThemedText type="small" themeColor="textSecondary">{user.email ?? 'Signed in'}</ThemedText></View></ClaySurface><StateCard title="Your saved places" message="Open Favorites to revisit the places you saved." actionLabel="Favorites" onAction={() => router.push('/favorites')} /><SecondaryButton label="Sign Out" onPress={() => void leave()} /></>}</ScrollView></SafeAreaView></View>;
+  return <View style={[styles.screen, { backgroundColor: theme.background.canvas }]}>
+    <SafeAreaView edges={['top']} style={styles.safe}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]} showsVerticalScrollIndicator={false}>
+        <View style={styles.heading}>
+          <ThemedText style={Typography.eyebrow} themeColor="textSecondary">YOUR EXPLOREWISE</ThemedText>
+          <ThemedText accessibilityRole="header" style={Typography.screenTitle}>Profile</ThemedText>
+          <ThemedText style={Typography.bodySecondary} themeColor="textSecondary">Your account and appearance preferences.</ThemedText>
+        </View>
+
+        <View style={styles.profile}>
+          <View style={[styles.avatar, { backgroundColor: theme.accent.primary }]}><Ionicons name="person" size={26} color={theme.accent.onPrimary} accessible={false} /></View>
+          <View style={styles.copy}>
+            <ThemedText style={Typography.cardTitle}>{user ? user.user_metadata.display_name || 'ExploreWise member' : 'ExploreWise Profile'}</ThemedText>
+            <ThemedText style={Typography.bodySecondary} themeColor="textSecondary">{user ? user.email ?? 'Signed in' : 'Sign in to keep favorites and community contributions connected to your account.'}</ThemedText>
+          </View>
+        </View>
+
+        {!user ? <View style={styles.authActions}><PrimaryButton label="Sign In" onPress={() => router.push('/auth/sign-in')} fullWidth /><SecondaryButton label="Create Account" onPress={() => router.push('/auth/sign-up')} fullWidth /></View> : <ScreenSection>
+          <SectionHeader title="Your places" />
+          <ClayCard variant="subtle" interactive onPress={() => router.push('/favorites')} style={styles.row} accessibilityLabel="Open Favorites">
+            <View style={[styles.rowIcon, { backgroundColor: theme.accent.primarySoft }]}><Ionicons name="heart-outline" size={20} color={theme.text.primary} accessible={false} /></View>
+            <View style={styles.copy}><ThemedText style={Typography.label}>Favorites</ThemedText><ThemedText style={Typography.bodySecondary} themeColor="textSecondary">Revisit the places you saved.</ThemedText></View>
+            <Ionicons name="chevron-forward" size={20} color={theme.text.muted} accessible={false} />
+          </ClayCard>
+        </ScreenSection>}
+
+        <AppearanceSetting />
+
+        {user ? <ScreenSection><SectionHeader title="Account" /><TertiaryButton label="Sign Out" onPress={() => void leave()} fullWidth /></ScreenSection> : null}
+      </ScrollView>
+    </SafeAreaView>
+  </View>;
 }
-const styles = StyleSheet.create({ screen: { flex: 1 }, safe: { flex: 1 }, content: { alignSelf: 'center', gap: Spacing.lg, maxWidth: MaxContentWidth, padding: Spacing.md, width: '100%' }, heading: { gap: Spacing.xs }, eyebrow: { fontSize: 11, letterSpacing: 1.1 }, profile: { alignItems: 'center', flexDirection: 'row', gap: Spacing.md }, avatar: { alignItems: 'center', borderRadius: 20, height: 58, justifyContent: 'center', width: 58 }, copy: { flex: 1, gap: 2 } });
+
+const styles = StyleSheet.create({
+  screen: { flex: 1 }, safe: { flex: 1 },
+  content: { alignSelf: 'center', gap: Spacing.lg, maxWidth: MaxContentWidth, padding: Spacing.md, paddingBottom: Spacing.six, width: '100%' },
+  heading: { gap: Spacing.xs },
+  profile: { paddingVertical: Spacing.lg, alignItems: 'center', flexDirection: 'row', gap: Spacing.md },
+  avatar: { alignItems: 'center', borderRadius: Radius.pill, height: 58, justifyContent: 'center', width: 58 },
+  copy: { flex: 1, gap: Spacing.xs, minWidth: 0 },
+  authActions: { gap: Spacing.sm },
+  row: { borderRadius: Radius.row, alignItems: 'center', flexDirection: 'row', gap: Spacing.mdCompact },
+  rowIcon: { alignItems: 'center', borderRadius: Radius.small, height: 42, justifyContent: 'center', width: 42 },
+});

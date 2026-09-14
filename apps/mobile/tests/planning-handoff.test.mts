@@ -15,12 +15,13 @@ test('Explore pending request preserves the exact text and is consumed exactly o
   assert.deepEqual(consumePendingWiseRequest(consumed.pending, pending.id), { request: null, pending: null });
 });
 
-test('Explore submission and suggestions use the shared handoff; Plan consumes it without route-param replay', () => {
+test('Explore submits the editable prompt through the shared handoff; Plan consumes it without route-param replay', () => {
   const explore = readFileSync(new URL('../src/app/(tabs)/index.tsx', import.meta.url), 'utf8');
   const plan = readFileSync(new URL('../src/app/(tabs)/plan.tsx', import.meta.url), 'utf8');
   const provider = readFileSync(new URL('../src/providers/planning-handoff-provider.tsx', import.meta.url), 'utf8');
   assert.match(explore, /submitFromExplore\(submittedPrompt\)/);
-  assert.match(explore, /onSuggestionSubmit=\{submitWise\}/);
+  assert.match(explore, /onChangePrompt=\{setWisePrompt\} onSubmit=\{\(\) => submitWise\(wisePrompt\)\}/);
+  assert.doesNotMatch(explore, /onSuggestionSubmit/);
   assert.match(plan, /const \[prompt, setPrompt\] = useState\(''\)/);
   assert.match(plan, /consumePendingWiseRequest\(pendingWiseRequest\.id\)/);
   assert.match(plan, /setPrompt\(request\.prompt\)/);

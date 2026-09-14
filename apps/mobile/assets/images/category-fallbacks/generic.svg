@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <!-- Original ExploreWise temporary category illustration. Not a venue photograph. -->
+  <rect width="640" height="360" fill="#EFEADF"/>
+  <circle cx="327" cy="177" r="139" fill="#E3DDCA"/>
+  <circle cx="327" cy="171" r="134" fill="#F5EFDF"/>
+  <path d="M0 295Q140 237 258 293T640 270V360H0Z" fill="#DDDCC7"/>
+  <path d="M0 325Q143 272 274 322T640 304V360H0Z" fill="#D0D4B8"/>
+  <circle cx="139" cy="108" r="16" fill="#D6BC96"/>
+  <path d="M487 99h24m-12-12v24" stroke="#A3AE89" stroke-width="5" stroke-linecap="round"/>
+  <path d="M114 217q28 2 31 31-28-2-31-31m35 29q1-25 24-31-1 25-24 31" fill="#AAB797"/>
+  <ellipse cx="325" cy="280" rx="121" ry="11" fill="#C5C6AC"/>
+  <path d="m203 129 78-30 80 30 77-30v145l-77 29-80-29-78 29z" fill="#FFFEFA"/><path d="m281 99 80 30v144l-80-29z" fill="#D4DBB9"/><path d="m217 222 45-23 51 19 38-45 43 10 29-40" fill="none" stroke="#8B9E75" stroke-width="6" stroke-linecap="round" stroke-dasharray="4 13"/><path d="M353 77c-51 0-61 56 0 112 61-56 51-112 0-112" fill="#748B66"/><circle cx="353" cy="115" r="17" fill="#F5EDD9"/><circle cx="239" cy="149" r="12" fill="#D3A58A"/>
+</svg>

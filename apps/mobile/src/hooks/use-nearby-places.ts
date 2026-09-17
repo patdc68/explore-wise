@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { discoveryErrorMessage } from '@/lib/discovery-errors';
+import { mergeGoogleIdentityResults, type GoogleIdentityResult } from '@/services/google-place-identity';
 import {
   categoryCodesFromKey,
   fetchPricedNearbyPlaces,
@@ -72,5 +73,9 @@ export function useNearbyPlaces({
     void refresh();
   }, [queryKey, refresh]);
 
-  return { places, isLoading, error, refresh };
+  const applyGoogleIdentityResults = useCallback((results: readonly GoogleIdentityResult[]) => {
+    setPlaces((current) => mergeGoogleIdentityResults(current, results));
+  }, []);
+
+  return { places, isLoading, error, refresh, applyGoogleIdentityResults };
 }

@@ -22,6 +22,7 @@
     "pilot:merchant-ordering-matches": "tsx src/cli/merchant-ordering-match-pilot.ts",
     "pilot:store-locator-identity": "tsx src/cli/store-locator-identity-pilot.ts",
     "audit:phase1-nonfood-pricing": "tsx src/cli/phase1-nonfood-pricing-audit.ts",
+    "match:google-places": "tsx src/cli/google-place-match.ts",
     "test": "tsx --test tests/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

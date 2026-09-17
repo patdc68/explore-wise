@@ -15,6 +15,8 @@ import { useFavorites } from '@/hooks/use-favorites';
 import { useDesignTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/providers/auth-provider';
 import { fetchCommunityAggregate, formatPesoMinor, type CommunityAggregate } from '@/services/community';
+import { googleMapsDirectionsUrl } from '@/services/google-maps';
+import { ensureGooglePlaceIdentities } from '@/services/google-place-identity';
 import { fetchPlaceDetail, fetchPricedNearbyPlaces, formatDistance, type PlaceDetail, type PricedNearbyPlace } from '@/services/places';
 
 function firstParam(value: string | string[] | undefined) { return Array.isArray(value) ? value[0] : value; }
@@ -55,7 +57,23 @@ export default function PlaceDetailScreen() {
   }, [latitude, longitude, placeId]);
 
   useEffect(() => { void loadPlace(); }, [loadPlace]);
+  useEffect(() => {
+    if (!place || place.googleMatchStatus !== 'not_checked') return;
+    let active = true;
+    void ensureGooglePlaceIdentities([place.id]).then(([identity]) => {
+      if (!active || !identity?.google_match_status || identity.google_match_status === 'not_checked') return;
+      setPlace((current) => current?.id === identity.place_id ? {
+        ...current,
+        googlePlaceId: identity.google_place_id,
+        googleMatchStatus: identity.google_match_status!,
+        googleMatchConfidence: identity.google_match_confidence,
+      } : current);
+    }).catch(() => { /* Identity warming is optional and must never block place details. */ });
+    return () => { active = false; };
+  }, [place]);
   const locationLabel = useMemo(() => [place?.address, place?.district, place?.city, place?.region].filter(Boolean).join(', '), [place]);
+  const resolvedLatitude = latitude ?? place?.latitude ?? null;
+  const resolvedLongitude = longitude ?? place?.longitude ?? null;
   const openUrl = async (url: string) => { const supported = await Linking.canOpenURL(url); if (!supported) { Alert.alert('Unable to open link', 'This action is not available on your device.'); return; } await Linking.openURL(url); };
   const handleFavorite = () => {
     if (!placeId) return;
@@ -109,12 +127,12 @@ export default function PlaceDetailScreen() {
 
           {locationLabel ? <ScreenSection>
             <SectionHeader title="Location" description={locationLabel} />
-            {latitude !== null && longitude !== null ? <ClayCard variant="subtle" padding="none" style={styles.map}><ItineraryMap compact start={{ latitude, longitude, label: locationLabel }} startMarkerLabel={place.name} candidates={[]} selected={[]} highlightedId={null} onPressCandidate={() => {}} /></ClayCard> : null}
+            {resolvedLatitude !== null && resolvedLongitude !== null ? <ClayCard variant="subtle" padding="none" style={styles.map}><ItineraryMap compact start={{ latitude: resolvedLatitude, longitude: resolvedLongitude, label: locationLabel }} startMarkerLabel={place.name} candidates={[]} selected={[]} highlightedId={null} onPressCandidate={() => {}} /></ClayCard> : null}
           </ScreenSection> : null}
 
           <View style={styles.actions}>
             <PrimaryButton label={favoriteIds.has(place.id) ? 'Saved' : 'Save place'} accessibilityState={{ selected: favoriteIds.has(place.id) }} onPress={handleFavorite} style={styles.actionMain} icon={<Ionicons name={favoriteIds.has(place.id) ? 'heart' : 'heart-outline'} size={18} color={theme.accent.onPrimary} accessible={false} />} />
-            {latitude !== null && longitude !== null ? <SecondaryButton label="Navigate" onPress={() => void openUrl(`https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}`)} style={styles.actionMain} icon={<Ionicons name="navigate-outline" size={18} color={theme.action.onSecondary} accessible={false} />} /> : null}
+            <SecondaryButton label="Navigate" onPress={() => void openUrl(googleMapsDirectionsUrl({ name: place.name, address: place.address, district: place.district, city: place.city, region: place.region, latitude: resolvedLatitude, longitude: resolvedLongitude, googlePlaceId: place.googlePlaceId, googleMatchStatus: place.googleMatchStatus }))} style={styles.actionMain} icon={<Ionicons name="navigate-outline" size={18} color={theme.action.onSecondary} accessible={false} />} />
           </View>
           {place.website_url || place.phone_number ? <View style={styles.links}>{place.website_url ? <SecondaryButton label="Website" onPress={() => void openUrl(place.website_url!)} style={styles.linkButton} /> : null}{place.phone_number ? <SecondaryButton label="Call" onPress={() => void openUrl(`tel:${place.phone_number!.replace(/\s+/g, '')}`)} style={styles.linkButton} /> : null}</View> : null}
         </>}

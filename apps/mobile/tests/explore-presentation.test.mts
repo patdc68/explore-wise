@@ -35,7 +35,7 @@ function harness(mode: 'light' | 'dark' = 'light') {
     const index = cursor++;
     if (!(index in states)) states[index] = initial;
     return [states[index], (next: any) => { states[index] = typeof next === 'function' ? next(states[index]) : next; }];
-  } };
+  }, useEffect: () => {}, useMemo: (factory: () => any) => factory() };
   const hooks = {
     useTheme: () => tokens.Colors[mode],
     useDesignTheme: () => tokens.ColorTokens[mode],
@@ -51,7 +51,7 @@ function harness(mode: 'light' | 'dark' = 'light') {
   const place = load('components/discovery/place-card.tsx', { ...shared, './place-visual': { PlaceVisual: 'PlaceVisual' }, './price-summary': price, '@/services/places': { formatDistance: (meters: number) => { formattedDistances.push(meters); return `${meters} m`; } } });
   const calls = { submitted: [] as string[], routes: [] as any[], toggled: [] as string[], queued: [] as (() => void)[], alerts: [] as any[], location: 0, refresh: 0, categories: 0 };
   const location: any = { status: 'ready', selection: { label: 'Test discovery area', source: 'current-location', coordinates: { latitude: 0, longitude: 0 } }, requestCurrentLocation: async () => { calls.location++; } };
-  const nearby: any = { places: [], isLoading: false, error: null, refresh: () => { calls.refresh++; } };
+  const nearby: any = { places: [], isLoading: false, error: null, refresh: () => { calls.refresh++; }, applyGoogleIdentityResults: () => {} };
   const categories: any = { categories: [1, 2, 3, 4, 5, 6].map((id) => ({ code: `test.${id}`, name: `Test category ${id}`, categoryCodes: [`test.${id}`, `test.${id}.child`] })), isLoading: false, error: null, refresh: () => { calls.categories++; } };
   const auth: any = { user: { id: 'test-user' }, queueAfterAuthentication: (action: () => void) => { calls.queued.push(action); } };
   const favoriteIds = new Set<string>();
@@ -71,6 +71,7 @@ function harness(mode: 'light' | 'dark' = 'light') {
     '@/hooks/use-favorites': { useFavorites: () => ({ favoriteIds, toggleFavorite: async (id: string) => { calls.toggled.push(id); } }) },
     '@/providers/auth-provider': { useAuth: () => auth },
     '@/providers/planning-handoff-provider': { usePlanningHandoff: () => ({ submitFromExplore: (prompt: string) => calls.submitted.push(prompt) }) },
+    '@/services/google-place-identity': { warmVisibleGooglePlaceIdentities: async () => [] },
   });
   return { calls, location, nearby, categories, auth, favoriteIds, clay, ask, place, price, formattedDistances,
     query: () => query,

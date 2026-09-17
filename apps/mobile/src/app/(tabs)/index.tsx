@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'expo-router';
 
 import { AskWiseCard } from '@/components/ask-wise-card';
@@ -20,6 +20,7 @@ import { useDesignTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/providers/auth-provider';
 import { usePlanningHandoff } from '@/providers/planning-handoff-provider';
 import type { DiscoveryCategory, PricedNearbyPlace } from '@/services/places';
+import { warmVisibleGooglePlaceIdentities } from '@/services/google-place-identity';
 
 const radiusOptions = [{ label: '1 km', meters: 1000 }, { label: '3 km', meters: 3000 }, { label: '5 km', meters: 5000 }, { label: '10 km', meters: 10000 }] as const;
 
@@ -31,7 +32,7 @@ export default function ExploreScreen() {
   const { favoriteIds, toggleFavorite } = useFavorites(); const { user, queueAfterAuthentication } = useAuth();
   const [selectedCategory, setSelectedCategory] = useState<DiscoveryCategory | null>(null); const [radiusMeters, setRadiusMeters] = useState(5000); const [isLocationSearchVisible, setIsLocationSearchVisible] = useState(false); const [wisePrompt, setWisePrompt] = useState('');
   const coordinates = location.selection?.coordinates ?? null;
-  const { places, isLoading, error, refresh } = useNearbyPlaces({ coordinates, radiusMeters, categoryCodes: selectedCategory?.categoryCodes });
+  const { places, isLoading, error, refresh, applyGoogleIdentityResults } = useNearbyPlaces({ coordinates, radiusMeters, categoryCodes: selectedCategory?.categoryCodes });
   const handleUseCurrentLocation = () => { setIsLocationSearchVisible(false); void location.requestCurrentLocation(); };
   const handleToggleFavorite = (place: PricedNearbyPlace) => {
     if (!user) {
@@ -45,8 +46,11 @@ export default function ExploreScreen() {
     }
     void toggleFavorite(place.place_id).catch(() => Alert.alert('Favorites unavailable', 'Please try again.'));
   };
-  const priced = places.filter((place) => place.has_price && !['likely_exceeds', 'exceeds'].includes(place.budget_status ?? ''));
-  const nearby = places.filter((place) => !priced.some((pricedPlace) => pricedPlace.place_id === place.place_id));
+  const priced = useMemo(() => places.filter((place) => place.has_price && !['likely_exceeds', 'exceeds'].includes(place.budget_status ?? '')), [places]);
+  const nearby = useMemo(() => places.filter((place) => !priced.some((pricedPlace) => pricedPlace.place_id === place.place_id)), [places, priced]);
+  useEffect(() => {
+    void warmVisibleGooglePlaceIdentities([...priced, ...nearby], applyGoogleIdentityResults);
+  }, [applyGoogleIdentityResults, nearby, priced]);
   const submitWise = (submittedPrompt: string) => { if (!submittedPrompt.trim()) return; submitFromExplore(submittedPrompt); router.navigate('/plan' as never); };
   return (
     <View style={[styles.screen, { backgroundColor: theme.background.canvas }]}>

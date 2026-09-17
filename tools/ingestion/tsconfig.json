@@ -5,6 +5,7 @@
     "moduleResolution": "NodeNext",
     "strict": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "esModuleInterop": true,
@@ -14,4 +15,3 @@
   },
   "include": ["src/**/*.ts", "tests/**/*.ts", "../../data/**/*.ts"]
 }
-

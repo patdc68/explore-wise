@@ -4,7 +4,7 @@ import { buildStages, filterCandidatesForStage, remainingBudget, selectStop, sta
 import type { PricedNearbyPlace } from './places.ts';
 import { logFoodPipeline } from './wise-food-diagnostics.ts';
 
-export type WiseProposal = Readonly<{ intent: AskWiseIntent; state: ItineraryState; missingStageIds: readonly string[]; historyKey: string; explicitFoodNoMatch: Exclude<AskWiseIntent['foodFocus'], null | undefined> | null }>;
+export type WiseProposal = Readonly<{ intent: AskWiseIntent; state: ItineraryState; missingStageIds: readonly string[]; historyKey: string; explicitFoodNoMatch: Exclude<AskWiseIntent['foodFocus'], null | undefined> | null; anchorPlaceId: string | null }>;
 export type ProposalFetcher = (input: { coordinates: { latitude: number; longitude: number }; categoryCodes: string[]; budgetMinor: number | null; partySize: number }) => Promise<PricedNearbyPlace[]>;
 
 const excluded = (place: PricedNearbyPlace, terms: readonly string[]) => {
@@ -13,12 +13,19 @@ const excluded = (place: PricedNearbyPlace, terms: readonly string[]) => {
 };
 
 /** RPC output is already relevance-first and budget-ranked. This only applies session exclusions. */
-export async function buildWiseProposal({ intent, start, fetcher, excludedCombinations = [] }: { intent: AskWiseIntent; start: ItineraryState['start']; fetcher: ProposalFetcher; excludedCombinations?: readonly string[] }): Promise<WiseProposal> {
+export async function buildWiseProposal({ intent, start, fetcher, excludedCombinations = [], anchor = null }: { intent: AskWiseIntent; start: ItineraryState['start']; fetcher: ProposalFetcher; excludedCombinations?: readonly string[]; anchor?: PricedNearbyPlace | null }): Promise<WiseProposal> {
   const state: ItineraryState = { start, budgetMinor: intent.budgetMinor ?? 300000, partySize: intent.partySize ?? 1, stages: buildStages(intent.stages.length ? intent.stages : ['discovery'], intent.inferredStages, intent.activityFocus), stops: [] };
   let selected = state;
   const missingStageIds: string[] = [];
   let explicitFoodNoMatch: Exclude<AskWiseIntent['foodFocus'], null | undefined> | null = null;
+  const anchorStageId = anchor
+    ? state.stages.find((stage) => anchor.category_code && stage.categoryCodes.includes(anchor.category_code))?.id ?? state.stages[0]?.id
+    : undefined;
   for (const stage of selected.stages) {
+    if (anchor && stage.id === anchorStageId) {
+      selected = selectStop(selected, stage.id, anchor);
+      continue;
+    }
     // The itinerary display fallback is not user budget intent. Passing it to
     // the RPC would make known-price chains rank ahead of generic restaurants.
     const budget = intent.budgetMinor === null ? null : remainingBudget(selected).conservativeMinor ?? selected.budgetMinor;
@@ -38,7 +45,7 @@ export async function buildWiseProposal({ intent, start, fetcher, excludedCombin
     selected = selectStop(selected, stage.id, pick);
   }
   const historyKey = selected.stops.map((stop) => `${stop.stageId}:${stop.place.place_id}`).join('|');
-  return { intent, state: selected, missingStageIds, historyKey, explicitFoodNoMatch };
+  return { intent, state: selected, missingStageIds, historyKey, explicitFoodNoMatch, anchorPlaceId: anchor?.place_id ?? null };
 }
 
 export function proposalRationale(stage: ItineraryStage, index: number) {

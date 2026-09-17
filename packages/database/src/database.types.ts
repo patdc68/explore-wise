@@ -627,6 +627,12 @@ export type Database = {
           default_currency: string
           description: string | null
           district: string | null
+          google_match_algorithm_version: string | null
+          google_match_checked_at: string | null
+          google_match_confidence: number | null
+          google_match_status: string
+          google_place_id: string | null
+          google_place_id_refreshed_at: string | null
           id: string
           location: unknown
           name: string
@@ -649,6 +655,12 @@ export type Database = {
           default_currency: string
           description?: string | null
           district?: string | null
+          google_match_algorithm_version?: string | null
+          google_match_checked_at?: string | null
+          google_match_confidence?: number | null
+          google_match_status?: string
+          google_place_id?: string | null
+          google_place_id_refreshed_at?: string | null
           id?: string
           location: unknown
           name: string
@@ -671,6 +683,12 @@ export type Database = {
           default_currency?: string
           description?: string | null
           district?: string | null
+          google_match_algorithm_version?: string | null
+          google_match_checked_at?: string | null
+          google_match_confidence?: number | null
+          google_match_status?: string
+          google_place_id?: string | null
+          google_place_id_refreshed_at?: string | null
           id?: string
           location?: unknown
           name?: string
@@ -869,6 +887,50 @@ export type Database = {
           place_id: string
           region: string
           website_url: string
+        }[]
+      }
+      ew_search_catalog_places: {
+        Args: {
+          p_budget_minor?: number | null
+          p_latitude?: number | null
+          p_locality_hint?: string | null
+          p_longitude?: number | null
+          p_party_size?: number
+          p_query: string
+          p_result_limit?: number
+        }
+        Returns: {
+          address: string | null
+          budget_status: string | null
+          category_code: string | null
+          category_name: string | null
+          city: string | null
+          confidence_level: string | null
+          country_code: string
+          currency_code: string | null
+          distance_meters: number | null
+          effective_price_source: string | null
+          estimated_group_max_minor: number | null
+          estimated_group_min_minor: number | null
+          has_price: boolean
+          last_verified_at: string | null
+          latitude: number
+          locality_match_score: number
+          longitude: number
+          max_amount_minor: number | null
+          min_amount_minor: number | null
+          name: string
+          name_match_score: number
+          phone_number: string | null
+          place_id: string
+          price_precision: string | null
+          price_source_label: string
+          pricing_basis: string | null
+          pricing_channel: string | null
+          pricing_status: string | null
+          pricing_unit: string | null
+          region: string | null
+          website_url: string | null
         }[]
       }
     }

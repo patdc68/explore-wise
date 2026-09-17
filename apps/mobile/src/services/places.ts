@@ -1,6 +1,8 @@
 import { getSupabaseClient } from '@/lib/supabase';
 import type { Database } from '@/types/database';
 import type { FoodFocus } from './ask-wise-normalization';
+import type { CatalogSearchCandidate, CatalogSearchRequest } from './catalog-search';
+import type { GoogleMatchStatus } from './google-maps';
 import { composePlanningCandidatePool, coordinatesFromPostgisPoint, distanceBetweenMeters, EXPLICIT_NAME_QUERY_LIMIT, explicitNameTerms, focusedCategoryCodes, PLANNING_BUDGET_EVIDENCE_LIMIT, PLANNING_EXPLICIT_MATCH_LIMIT, withPlanningBudgetStatus } from './planning-food-retrieval';
 import {
   buildNearbyPlacesArgs,
@@ -25,7 +27,15 @@ export { budgetStatusForCandidate, composePlanningCandidatePool, coordinatesFrom
 type PlaceRow = Database['public']['Tables']['ew_places']['Row'];
 
 export type NearbyPlace = Database['public']['Functions']['ew_nearby_places']['Returns'][number];
-export type PricedNearbyPlace = Database['public']['Functions']['ew_nearby_places_priced']['Returns'][number];
+type PricedNearbyPlaceRow = Database['public']['Functions']['ew_nearby_places_priced']['Returns'][number];
+export type PricedNearbyPlace = Omit<PricedNearbyPlaceRow, 'category_code' | 'category_name'> & {
+  category_code: string | null;
+  category_name: string | null;
+} & Partial<{
+  google_place_id: string | null;
+  google_match_status: GoogleMatchStatus;
+  google_match_confidence: number | null;
+}>;
 
 export type PlaceDetail = Pick<
   PlaceRow,
@@ -33,6 +43,11 @@ export type PlaceDetail = Pick<
 > & {
   categoryName: string | null;
   categoryCode: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  googlePlaceId: string | null;
+  googleMatchStatus: GoogleMatchStatus;
+  googleMatchConfidence: number | null;
 };
 
 type ExplicitFoodRow = Readonly<{
@@ -88,7 +103,7 @@ export async function fetchNearbyPlaces(input: NearbyPlacesInput): Promise<Nearb
   return data ?? [];
 }
 
-export async function fetchPricedNearbyPlaces(input: NearbyPlacesInput & { budgetMinor?: number | null; partySize?: number }): Promise<PricedNearbyPlace[]> {
+async function fetchPricedNearbyPlacesBase(input: NearbyPlacesInput & { budgetMinor?: number | null; partySize?: number }): Promise<PricedNearbyPlace[]> {
   const { data, error } = await getSupabaseClient().rpc('ew_nearby_places_priced', {
     ...buildNearbyPlacesArgs(input),
     p_budget_minor: input.budgetMinor ?? null,
@@ -96,6 +111,40 @@ export async function fetchPricedNearbyPlaces(input: NearbyPlacesInput & { budge
   });
   if (error) throw error;
   return data ?? [];
+}
+
+async function hydrateGoogleIdentities(places: readonly PricedNearbyPlace[]): Promise<PricedNearbyPlace[]> {
+  if (places.length === 0) return [...places];
+  const { data: identities, error } = await getSupabaseClient()
+    .from('ew_places')
+    .select('id, google_place_id, google_match_status, google_match_confidence')
+    .in('id', [...new Set(places.map((place) => place.place_id))]);
+  if (error) return [...places];
+  const identityById = new Map((identities ?? []).map((identity) => [identity.id, {
+    google_place_id: identity.google_place_id,
+    google_match_status: identity.google_match_status as GoogleMatchStatus,
+    google_match_confidence: identity.google_match_confidence,
+  }]));
+  return places.map((place) => ({ ...place, ...identityById.get(place.place_id) }));
+}
+
+export async function fetchPricedNearbyPlaces(input: NearbyPlacesInput & { budgetMinor?: number | null; partySize?: number }): Promise<PricedNearbyPlace[]> {
+  return hydrateGoogleIdentities(await fetchPricedNearbyPlacesBase(input));
+}
+
+/** Whole-catalog name search; optional category, price, and Google identity never gate results. */
+export async function searchCatalogPlaces(input: CatalogSearchRequest): Promise<CatalogSearchCandidate[]> {
+  const { data, error } = await getSupabaseClient().rpc('ew_search_catalog_places', {
+    p_query: input.query,
+    p_latitude: input.coordinates?.latitude ?? null,
+    p_longitude: input.coordinates?.longitude ?? null,
+    p_locality_hint: input.localityHint ?? null,
+    p_result_limit: Math.min(30, Math.max(1, input.resultLimit ?? 20)),
+    p_budget_minor: input.budgetMinor ?? null,
+    p_party_size: input.partySize ?? 1,
+  });
+  if (error) throw error;
+  return (data ?? []) as CatalogSearchCandidate[];
 }
 
 /**
@@ -106,16 +155,17 @@ export async function fetchPricedNearbyPlaces(input: NearbyPlacesInput & { budge
 export async function fetchPlanningNearbyPlaces(input: NearbyPlacesInput & { budgetMinor?: number | null; partySize?: number; foodFocus?: FoodFocus }): Promise<PricedNearbyPlace[]> {
   const resultLimit = input.resultLimit ?? 30;
   const focusedCodes = input.foodFocus ? focusedCategoryCodes[input.foodFocus] : undefined;
-  const broadRequest = fetchPricedNearbyPlaces({ ...input, resultLimit, budgetMinor: null });
+  const broadRequest = fetchPricedNearbyPlacesBase({ ...input, resultLimit, budgetMinor: null });
   const budgetRequest = input.budgetMinor === null || input.budgetMinor === undefined
     ? Promise.resolve([] as PricedNearbyPlace[])
-    : fetchPricedNearbyPlaces({ ...input, resultLimit: Math.min(PLANNING_BUDGET_EVIDENCE_LIMIT, resultLimit), budgetMinor: input.budgetMinor });
+    : fetchPricedNearbyPlacesBase({ ...input, resultLimit: Math.min(PLANNING_BUDGET_EVIDENCE_LIMIT, resultLimit), budgetMinor: input.budgetMinor });
   const focusedRequest = focusedCodes?.length
-    ? fetchPricedNearbyPlaces({ ...input, categoryCodes: [...focusedCodes], resultLimit: Math.min(PLANNING_EXPLICIT_MATCH_LIMIT, resultLimit), budgetMinor: null })
+    ? fetchPricedNearbyPlacesBase({ ...input, categoryCodes: [...focusedCodes], resultLimit: Math.min(PLANNING_EXPLICIT_MATCH_LIMIT, resultLimit), budgetMinor: null })
     : fetchExplicitFoodNameMatches(input);
   const [broad, budgetEvidence, explicitMatches] = await Promise.all([broadRequest, budgetRequest, focusedRequest]);
   const merged = composePlanningCandidatePool({ broad, budgetEvidence, explicitMatches, resultLimit });
-  return withPlanningBudgetStatus(merged, input.budgetMinor);
+  const ranked = withPlanningBudgetStatus(merged, input.budgetMinor);
+  return hydrateGoogleIdentities(ranked);
 }
 
 export async function fetchDiscoveryCategories(): Promise<DiscoveryCategory[]> {
@@ -135,7 +185,7 @@ export async function fetchPlaceDetail(placeId: string): Promise<PlaceDetail | n
   const client = getSupabaseClient();
   const { data: place, error: placeError } = await client
     .from('ew_places')
-    .select('id, name, description, address, city, district, region, website_url, phone_number, category_id')
+    .select('id, name, description, address, city, district, region, website_url, phone_number, category_id, location, google_place_id, google_match_status, google_match_confidence')
     .eq('id', placeId)
     .maybeSingle();
 
@@ -148,6 +198,7 @@ export async function fetchPlaceDetail(placeId: string): Promise<PlaceDetail | n
 
   if (categoryError) throw categoryError;
 
+  const coordinates = coordinatesFromPostgisPoint(place.location);
   return {
     id: place.id,
     name: place.name,
@@ -160,5 +211,10 @@ export async function fetchPlaceDetail(placeId: string): Promise<PlaceDetail | n
     phone_number: place.phone_number,
     categoryName: category?.name ?? null,
     categoryCode: category?.code ?? null,
+    latitude: coordinates?.latitude ?? null,
+    longitude: coordinates?.longitude ?? null,
+    googlePlaceId: place.google_place_id,
+    googleMatchStatus: place.google_match_status as GoogleMatchStatus,
+    googleMatchConfidence: place.google_match_confidence,
   };
 }

@@ -124,8 +124,10 @@ function planHarness(mode: 'light' | 'dark', store: Store) {
     '@/services/itinerary-execution': executionService, '@/services/itinerary': itinerary,
     '@/services/planning-distance': distance, '@/services/planning-session': planningSession,
     '@/services/ask-wise': {}, '@/services/customize-ui': {}, '@/services/food-candidate-diversity': {},
+    '@/services/catalog-search': { resolveNamedCatalogPlace: async () => null },
     '@/services/plan-location': {}, '@/services/places': {}, '@/services/guided-selection': {},
     '@/services/wise-budget-diagnostics': {}, '@/services/wise-food-diagnostics': {}, '@/services/wise-proposal': {},
+    '@/services/google-place-identity': { mergeGoogleIdentityResults: (places: any[]) => places, warmVisibleGooglePlaceIdentities: async () => [] },
   });
   return {
     render: () => { effects = []; const root = screen.default(); presentationKey = root.props.resetScrollKey; return expand(root); },

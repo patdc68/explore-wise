@@ -75,3 +75,9 @@ tests/               focused Node test-runner tests
 The global region configuration and category mapping contracts live at repository-level under `data/` so future ingestion/admin tooling can share them.
 
 See `docs/data-ingestion.md` for database security, provenance, staging, deduplication, idempotency, and extension guidance.
+
+## Google Place identity matching
+
+`npm run match:google-places -- --dry-run --limit 25` runs the bounded server-side Google Places (New) identity matcher. It defaults to a 25-place dry run, processes only `google_match_status = not_checked`, and uses at most five concurrent requests. Use `--place-id <uuid>`, `--status <status>`, `--concurrency <1-5>`, or `--force-refresh` to control selection. Database writes require the explicit `--write` flag.
+
+The command requires `SUPABASE_DB_URL` and `GOOGLE_PLACES_API_KEY` in this package's ignored `.env.local` or in the operator environment. Candidate names, addresses, and response payloads are transient dry-run diagnostics. Only a trusted matched Place ID and ExploreWise-generated status, confidence, timestamps, and algorithm version are persisted.

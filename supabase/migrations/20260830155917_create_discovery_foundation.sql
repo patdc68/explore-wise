@@ -259,7 +259,7 @@ grant select, update on table public.ew_profiles to authenticated;
 grant select, insert, update, delete on table public.ew_user_preferences to authenticated;
 grant select, insert, delete on table public.ew_favorites to authenticated;
 
-grant select, insert, update, delete on table
+grant all privileges on table
   public.ew_categories,
   public.ew_places,
   public.ew_tags,

@@ -1,2 +1,5 @@
 [functions.ask-wise]
 verify_jwt = false
+
+[functions.ensure-google-place-identity]
+verify_jwt = false

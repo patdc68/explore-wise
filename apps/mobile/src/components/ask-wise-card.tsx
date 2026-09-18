@@ -13,16 +13,17 @@ const suggestions = [
   { label: 'Family day', prompt: 'A family day out with food and an activity for four people' },
 ] as const;
 
-export function AskWiseCard({ prompt, onChangePrompt, onSubmit, isLoading = false, compact = false }: {
+export function AskWiseCard({ prompt, onChangePrompt, onSubmit, isLoading = false, compact = false, surface = 'hero' }: {
   prompt: string;
   onChangePrompt: (value: string) => void;
   onSubmit: () => void;
   isLoading?: boolean;
   compact?: boolean;
+  surface?: 'hero' | 'subtle';
 }) {
   const theme = useDesignTheme();
   return (
-    <ClayCard variant="hero" padding="default" style={styles.card}>
+    <ClayCard variant={surface} padding="default" style={styles.card}>
       <View style={styles.header}>
         <View style={[styles.mark, { backgroundColor: theme.accent.primary }]}>
           <Ionicons name="sparkles" color={theme.accent.onPrimary} size={16} accessible={false} />

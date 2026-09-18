@@ -8,7 +8,7 @@ import { AskWiseCard } from '@/components/ask-wise-card';
 import { FilterChip } from '@/components/discovery/filter-chip';
 import { LocationSearchSheet } from '@/components/discovery/location-search-sheet';
 import { PlaceCard } from '@/components/discovery/place-card';
-import { SectionHeader, ClayCard, IconButton, LoadingCard, ScreenSection, SecondaryButton, TertiaryButton } from '@/components/ui/clay';
+import { SectionHeader, ClayCard, IconButton, LoadingCard, PrimaryButton, ScreenSection, SecondaryButton, TertiaryButton } from '@/components/ui/clay';
 import { useFloatingTabInset } from '@/hooks/use-floating-tab-inset';
 import { ThemedText } from '@/components/themed-text';
 import { MaxContentWidth, Radius, Spacing, Typography } from '@/constants/theme';
@@ -65,7 +65,13 @@ export default function ExploreScreen() {
 
           <LocationCard location={location} onChooseAnotherLocation={() => setIsLocationSearchVisible(true)} onUseCurrentLocation={handleUseCurrentLocation} />
 
-          <AskWiseCard prompt={wisePrompt} onChangePrompt={setWisePrompt} onSubmit={() => submitWise(wisePrompt)} />
+          <ClayCard variant="hero" style={{ gap: Spacing.md }}>
+            <ThemedText accessibilityRole="header" style={Typography.screenHeading}>Where shall we go today?</ThemedText>
+            <ThemedText themeColor="textSecondary">A few choices. An outing that feels like you.</ThemedText>
+            <PrimaryButton label="Build my plan" onPress={() => router.push('/guided-planner')} />
+          </ClayCard>
+          <ThemedText style={Typography.eyebrow} themeColor="muted">FAST PATH · ASK WISE</ThemedText>
+          <AskWiseCard surface="subtle" prompt={wisePrompt} onChangePrompt={setWisePrompt} onSubmit={() => submitWise(wisePrompt)} />
 
           {!coordinates ? (
             <ThemedText type="small" themeColor="textSecondary">Choose a location above to see places nearby.</ThemedText>

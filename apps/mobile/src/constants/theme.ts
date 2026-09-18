@@ -291,4 +291,5 @@ export const Shadows: Record<'flat' | 'subtle' | 'card' | 'raised' | 'hero' | 'f
 
 export const TouchTarget = { minimum: 44, comfortable: 48, primary: 52 } as const;
 export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
-export const MaxContentWidth = 800;
+/** Keep the shared mobile surfaces phone-width even when rendered in a wide preview. */
+export const MaxContentWidth = 430;

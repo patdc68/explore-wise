@@ -13,7 +13,7 @@ import { foodFocusLabel } from '@/services/food-candidate-diversity';
 import { remainingBudget } from '@/services/itinerary';
 import { formatPhp } from '@/services/money';
 import { sequentialStopDistances } from '@/services/planning-distance';
-import { proposalRationale, type WiseProposal } from '@/services/wise-proposal';
+import type { WiseProposal } from '@/services/wise-proposal';
 
 export function WiseProposalCard({ proposal, requestText, onUse, onCustomize, onTryAnother, onStartOver, busy }: { proposal: WiseProposal; requestText: string | null; onUse: () => void; onCustomize: () => void; onTryAnother: () => void; onStartOver: () => void; busy: boolean }) {
   const theme = useDesignTheme();
@@ -31,6 +31,8 @@ export function WiseProposalCard({ proposal, requestText, onUse, onCustomize, on
         <ThemedText style={Typography.bodySecondary}>{requestText || 'Your planning request'}</ThemedText>
       </View>
     </View>
+
+    <ThemedText type="small" themeColor="textSecondary">Based on your selected preferences and available ExploreWise catalog data.</ThemedText>
 
     <Budget proposal={proposal} totals={totals} />
 
@@ -59,7 +61,7 @@ export function WiseProposalCard({ proposal, requestText, onUse, onCustomize, on
               <PlaceVisual place={stop.place} placeId={stop.place.place_id} thumbnail />
             </View>
             <PriceSummary place={stop.place} compact />
-            <ThemedText style={Typography.bodySecondary} themeColor="textSecondary">{proposalRationale(stage, index)}</ThemedText>
+            <ThemedText style={Typography.caption} themeColor="muted">{stage.source === 'user_added' ? 'Added stop' : stage.required ? 'Core stop' : 'Wise suggestion · optional'}</ThemedText>
             {stage.source === 'wise' && !stage.required ? <MetadataBadge label="Wise suggestion · optional" /> : null}
             </View>
           </View>;

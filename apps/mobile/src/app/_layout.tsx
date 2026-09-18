@@ -66,6 +66,7 @@ function ThemedRootLayout() {
             <AnimatedSplashOverlay />
             <Stack screenOptions={{ headerShown: false }}>
               <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="guided-planner" options={{ headerShown: false, gestureEnabled: false }} />
               <Stack.Screen name="place/[id]" options={{ headerShown: false }} />
               <Stack.Screen name="place/[id]/report" options={{ headerShown: false }} />
               <Stack.Screen name="plan/alternatives" options={{ headerShown: false }} />

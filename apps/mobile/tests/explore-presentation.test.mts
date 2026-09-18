@@ -27,6 +27,18 @@ const tokens = load('constants/theme.ts', { 'react-native': native, '@/global.cs
 const safeArea = { SafeAreaView: 'SafeAreaView' };
 const icon = { __esModule: true, default: 'Icon' };
 
+test('Explore opens Guided Planner while Ask Wise keeps its existing handoff', () => {
+  const app = harness();
+  byLabel(app.render(), 'Build my plan').props.onPress();
+  assert.deepEqual(app.calls.routes, ['/guided-planner']);
+  assert.deepEqual(app.calls.submitted, []);
+  const tree = app.render();
+  byLabel(tree, 'Ask Wise your plan').props.onChangeText('Test outing request');
+  byLabel(app.render(), 'Ask Wise').props.onPress();
+  assert.deepEqual(app.calls.submitted, ['Test outing request']);
+  assert.deepEqual(app.calls.routes, ['/guided-planner', '/plan']);
+});
+
 // Host views are stubs; the production screen, cards, primitives and callbacks execute.
 function harness(mode: 'light' | 'dark' = 'light') {
   let cursor = 0;

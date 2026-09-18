@@ -32,7 +32,7 @@ export function ItineraryProgress({ execution }: { execution: ItineraryExecution
       : `${progress.completed} of ${progress.total} stops completed${progress.skipped ? ` · ${progress.skipped} skipped` : ''}`;
   const content = <>
     <View style={[styles.title, execution.status === 'completed' && styles.celebration]}>
-      {execution.status === 'completed' ? <View style={[styles.celebrationIcon, { backgroundColor: theme.action.secondary }]}><Ionicons accessible={false} name="sparkles" size={38} color={theme.accent.primary} /></View> : null}
+      {execution.status === 'completed' ? <View style={[styles.celebrationIcon, { backgroundColor: theme.accent.primarySoft }]}><Ionicons accessible={false} name="checkmark" size={38} color={theme.text.primary} /></View> : null}
       <View style={[styles.titleCopy, execution.status === 'completed' && styles.celebrationCopy]}>
         {execution.status === 'in_progress' ? <ThemedText style={[Typography.eyebrow, { color: theme.itinerary.current }]}>ITINERARY IN PROGRESS</ThemedText> : null}
         {execution.status === 'completed' ? <ThemedText style={[Typography.eyebrow, { color: theme.itinerary.completed }]}>OUTING COMPLETE</ThemedText> : null}

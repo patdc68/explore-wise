@@ -241,11 +241,12 @@ export function ClayInput({
 
 export type ChoiceChipProps = Omit<PressableProps, 'children' | 'style'> & {
   label: string;
+  labelNumberOfLines?: number;
   selected?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
-export function ChoiceChip({ accessibilityLabel, accessibilityState, disabled, label, selected = false, style, ...props }: ChoiceChipProps) {
+export function ChoiceChip({ accessibilityLabel, accessibilityState, disabled, label, labelNumberOfLines = 1, selected = false, style, ...props }: ChoiceChipProps) {
   const theme = useDesignTheme();
   const elevation = useThemeElevation();
   return (
@@ -269,7 +270,7 @@ export function ChoiceChip({ accessibilityLabel, accessibilityState, disabled, l
         style,
       ]}>
       {selected ? <ThemedText accessibilityElementsHidden importantForAccessibility="no" style={[styles.chipCheck, { color: disabled ? theme.text.muted : theme.accent.onPrimary }]}>✓</ThemedText> : null}
-      <ThemedText maxFontSizeMultiplier={1.5} numberOfLines={1} style={[Typography.label, { color: disabled ? theme.text.muted : selected ? theme.accent.onPrimary : theme.text.primary }]}>{label}</ThemedText>
+      <ThemedText maxFontSizeMultiplier={1.5} numberOfLines={labelNumberOfLines} style={[Typography.label, { color: disabled ? theme.text.muted : selected ? theme.accent.onPrimary : theme.text.primary }]}>{label}</ThemedText>
     </Pressable>
   );
 }

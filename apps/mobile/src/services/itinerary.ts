@@ -1,5 +1,8 @@
 import type { ActivityFocus } from './ask-wise-normalization';
 import type { PricedNearbyPlace } from './places';
+import { summarizeSelectedPrices } from '../../../../packages/planning/src/budget.ts';
+import { selectionConstraintForCategoryCode as sharedSelectionConstraintForCategoryCode } from '../../../../packages/planning/src/composition.ts';
+import { filterCandidatesByPlaceId, selectedPlaceIdsForOtherStages as sharedSelectedPlaceIdsForOtherStages } from '../../../../packages/planning/src/dedupe.ts';
 import { googleMapsDirectionsUrl } from './google-maps.ts';
 import { stageDistanceOrigin } from './planning-distance.ts';
 
@@ -11,7 +14,7 @@ export type ItineraryStageSource = 'wise' | 'user_added';
 export type StageSelectionConstraint = 'dinner' | 'cafe' | 'dessert' | 'food' | 'generic_activity' | 'recreation' | 'cinema' | 'museum' | 'attraction' | 'outdoor' | 'entertainment' | 'auditorium';
 export type ItineraryStage = Readonly<{ id: string; title: string; categoryCodes: readonly string[]; required: boolean; source: ItineraryStageSource; selectionConstraint?: StageSelectionConstraint }>;
 export type ItineraryStop = Readonly<{ stageId: string; place: PricedNearbyPlace }>;
-export type ItineraryState = Readonly<{ start: { latitude: number; longitude: number; label: string }; budgetMinor: number; partySize: number; stages: readonly ItineraryStage[]; stops: readonly ItineraryStop[]; finalized?: boolean }>;
+export type ItineraryState = Readonly<{ start: { latitude: number; longitude: number; label: string }; budgetMinor: number; partySize: number; currencyCode?: string; stages: readonly ItineraryStage[]; stops: readonly ItineraryStop[]; finalized?: boolean }>;
 
 export const STAGE_CATEGORIES: Record<ItineraryStageType, readonly string[]> = {
   food_talk: ['food', 'food.restaurant', 'food.cafe', 'food.bakery', 'food.dessert'],
@@ -65,15 +68,7 @@ export function addUserStage(state: ItineraryState, categoryId: AddStopCategoryI
 }
 
 function selectionConstraintForCategoryCode(categoryCode: string | null): StageSelectionConstraint {
-  if (categoryCode === 'food.cafe') return 'cafe';
-  if (categoryCode === 'food.dessert' || categoryCode === 'food.bakery') return 'dessert';
-  if (categoryCode?.startsWith('food')) return 'food';
-  if (categoryCode === 'activity.recreation') return 'recreation';
-  if (categoryCode === 'entertainment.cinema') return 'cinema';
-  if (categoryCode?.startsWith('outdoor')) return 'outdoor';
-  if (categoryCode?.startsWith('attraction')) return 'attraction';
-  if (categoryCode?.startsWith('entertainment')) return 'entertainment';
-  return 'generic_activity';
+  return sharedSelectionConstraintForCategoryCode(categoryCode) as StageSelectionConstraint;
 }
 
 /** Add an explicitly searched active catalog identity without requiring optional category metadata. */
@@ -154,7 +149,7 @@ export function stageOriginKey(state: ItineraryState, stageIndex: number): strin
  * stage is deliberately omitted so its current selection stays selectable.
  */
 export function selectedPlaceIdsForOtherStages(state: ItineraryState, currentStageId: string): ReadonlySet<string> {
-  return new Set(state.stops.filter((stop) => stop.stageId !== currentStageId).map((stop) => stop.place.place_id));
+  return sharedSelectedPlaceIdsForOtherStages(state.stops, currentStageId);
 }
 
 /** Keep stale candidate sessions distinct whenever their exact-place exclusion set changes. */
@@ -170,10 +165,7 @@ export function selectedPlaceExclusionKey(state: ItineraryState, currentStageId:
  * returns it, allowing the user to retain that selection while editing.
  */
 export function filterCandidatesForStage(state: ItineraryState, currentStageId: string, candidates: readonly PricedNearbyPlace[]): PricedNearbyPlace[] {
-  const selectedElsewhere = selectedPlaceIdsForOtherStages(state, currentStageId);
-  const eligible = candidates.filter((place) => !selectedElsewhere.has(place.place_id));
-  const currentSelection = state.stops.find((stop) => stop.stageId === currentStageId)?.place;
-  return currentSelection && !eligible.some((place) => place.place_id === currentSelection.place_id) ? [currentSelection, ...eligible] : eligible;
+  return filterCandidatesByPlaceId(state.stops, currentStageId, candidates);
 }
 
 /** Last-line invariant for selections arriving from an invalidated UI session. */
@@ -189,12 +181,7 @@ export function stageIndexAfterRemoval(currentIndex: number, removedIndex: numbe
 }
 
 export function selectedTotals(stops: readonly ItineraryStop[]) {
-  let min = 0; let max = 0; let uncertain = false; let knownStopCount = 0; let unknownStopCount = 0;
-  for (const { place } of stops) {
-    if (!place.has_price || place.estimated_group_min_minor === null || place.estimated_group_max_minor === null) { uncertain = true; unknownStopCount += 1; continue; }
-    knownStopCount += 1; min += place.estimated_group_min_minor; max += place.estimated_group_max_minor;
-  }
-  return { minAmountMinor: min, maxAmountMinor: max, uncertain, knownStopCount, unknownStopCount };
+  return summarizeSelectedPrices(stops);
 }
 
 export function remainingBudget(state: ItineraryState) {

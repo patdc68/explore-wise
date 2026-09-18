@@ -1,4 +1,5 @@
 import type { AskWiseIntent } from './ask-wise.ts';
+import { historyKeyForStops } from '../../../../packages/planning/src/dedupe.ts';
 import { buildFoodCandidatePool, isFoodStage, orderStageCandidates, stageRankingContextFromIntent } from './food-candidate-diversity.ts';
 import { buildStages, filterCandidatesForStage, remainingBudget, selectStop, stageActivityFocus, type ItineraryStage, type ItineraryState } from './itinerary.ts';
 import type { PricedNearbyPlace } from './places.ts';
@@ -44,7 +45,7 @@ export async function buildWiseProposal({ intent, start, fetcher, excludedCombin
     }
     selected = selectStop(selected, stage.id, pick);
   }
-  const historyKey = selected.stops.map((stop) => `${stop.stageId}:${stop.place.place_id}`).join('|');
+  const historyKey = historyKeyForStops(selected.stops);
   return { intent, state: selected, missingStageIds, historyKey, explicitFoodNoMatch, anchorPlaceId: anchor?.place_id ?? null };
 }
 

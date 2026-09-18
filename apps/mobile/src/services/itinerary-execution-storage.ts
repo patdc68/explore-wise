@@ -15,6 +15,7 @@ const optionalTimestamp = (value: unknown) => value === undefined || (typeof val
 function validItinerary(value: unknown): value is ItineraryState {
   if (!record(value) || value.finalized !== true || !record(value.start)
     || !coordinate(value.start.latitude, 90) || !coordinate(value.start.longitude, 180) || !text(value.start.label)
+    || (value.currencyCode !== undefined && (typeof value.currencyCode !== 'string' || !/^[A-Z]{3}$/.test(value.currencyCode)))
     || !finite(value.budgetMinor) || value.budgetMinor < 0 || !Number.isInteger(value.partySize) || (value.partySize as number) < 1
     || !Array.isArray(value.stages) || !Array.isArray(value.stops) || !value.stops.length) return false;
   const stageIds = new Set<string>();

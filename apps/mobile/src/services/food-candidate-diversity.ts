@@ -1,5 +1,6 @@
 import type { AskWiseIntent, FoodFocus, OutingContext } from './ask-wise-normalization';
 import type { PricedNearbyPlace } from './places';
+import { deferRepeatedKeys, rankByScore, roundRobinByKey, stableSortBy } from '../../../../packages/planning/src/ranking.ts';
 
 type ChainAwarePlace = PricedNearbyPlace & { chain_id?: string | null };
 export type StageRankingContext = Readonly<{
@@ -69,15 +70,7 @@ const isRelevantFood = (place: PricedNearbyPlace) => {
 const uniquePlaces = (candidates: readonly PricedNearbyPlace[]) => candidates.filter((place, index, all) => all.findIndex((candidate) => candidate.place_id === place.place_id) === index);
 
 const deferDuplicateChains = (candidates: readonly PricedNearbyPlace[]) => {
-  const first: PricedNearbyPlace[] = [];
-  const duplicates: PricedNearbyPlace[] = [];
-  const seen = new Set<string>();
-  for (const candidate of candidates) {
-    const chain = foodChainKey(candidate);
-    if (chain && seen.has(chain)) duplicates.push(candidate);
-    else { if (chain) seen.add(chain); first.push(candidate); }
-  }
-  return [...first, ...duplicates];
+  return deferRepeatedKeys(candidates, foodChainKey);
 };
 
 type FoodVenueKind = 'restaurant' | 'meal' | 'cafe' | 'bakery' | 'dessert' | 'other';
@@ -126,16 +119,13 @@ const foodRelevance = (place: PricedNearbyPlace, focus: FoodFocus = null) => {
   return order[kind];
 };
 
-const stableFoodRelevanceOrder = (candidates: readonly PricedNearbyPlace[], focus: FoodFocus) => candidates
-  .map((place, index) => ({ place, index }))
-  .sort((left, right) => {
+const stableFoodRelevanceOrder = (candidates: readonly PricedNearbyPlace[], focus: FoodFocus) => stableSortBy(candidates, (left, right) => {
     if (focus === 'ramen') {
       const ramen = (place: PricedNearbyPlace) => /\bramen\b/i.test(`${place.name} ${place.category_name ?? ''} ${place.category_code ?? ''}`) ? 0 : foodVenueKind(place) === 'restaurant' ? 1 : 2;
-      return ramen(left.place) - ramen(right.place) || left.index - right.index;
+      return ramen(left) - ramen(right);
     }
-    return foodRelevance(left.place, focus) - foodRelevance(right.place, focus) || left.index - right.index;
-  })
-  .map(({ place }) => place);
+    return foodRelevance(left, focus) - foodRelevance(right, focus);
+  });
 
 /**
  * Generic food is restaurant-led. Price evidence stays available to the budget
@@ -200,14 +190,7 @@ const budgetFoodScore = (place: PricedNearbyPlace, context: StageRankingContext,
   return score;
 };
 
-const scoredFoodOrder = (candidates: readonly PricedNearbyPlace[], context: StageRankingContext, pressure: AffordabilityPressure) => candidates
-  .map((place, index) => ({
-    place,
-    index,
-    score: explicitFoodScore(place, context) + categoryScore(place, context.foodFocus ?? null) + contextFoodScore(place, context) + budgetFoodScore(place, context, pressure),
-  }))
-  .sort((left, right) => right.score - left.score || foodDistance(left.place) - foodDistance(right.place) || left.index - right.index)
-  .map(({ place }) => place);
+const scoredFoodOrder = (candidates: readonly PricedNearbyPlace[], context: StageRankingContext, pressure: AffordabilityPressure) => rankByScore(candidates, (place) => explicitFoodScore(place, context) + categoryScore(place, context.foodFocus ?? null) + contextFoodScore(place, context) + budgetFoodScore(place, context, pressure), (left, right) => foodDistance(left) - foodDistance(right));
 
 /** No-budget pricing is deliberately last: it can only break an otherwise contextual distance tie. */
 const noBudgetFoodOrder = (candidates: readonly PricedNearbyPlace[], context: StageRankingContext) => candidates
@@ -353,7 +336,7 @@ const contextualActivityScore = (place: PricedNearbyPlace, outingContext: Outing
 };
 
 export function rankOutingSuitability(candidates: readonly PricedNearbyPlace[], context: Pick<StageRankingContext, 'outingContext'> = {}): PricedNearbyPlace[] {
-  return candidates.map((place, index) => ({ place, index })).sort((left, right) => outingSuitabilityScore(right.place) + contextualActivityScore(right.place, context.outingContext) - outingSuitabilityScore(left.place) - contextualActivityScore(left.place, context.outingContext) || left.index - right.index).map(({ place }) => place);
+  return stableSortBy(candidates, (left, right) => outingSuitabilityScore(right) + contextualActivityScore(right, context.outingContext) - outingSuitabilityScore(left) - contextualActivityScore(left, context.outingContext));
 }
 
 const focusedActivityFamily = (focus: StageRankingContext['activityFocus']): ActivityFamily | null => focus === 'museum' ? 'culture' : focus === 'landmark' ? 'attraction' : focus === 'auditorium' ? 'entertainment' : focus ?? null;
@@ -363,22 +346,7 @@ const matchesExplicitActivityFocus = (place: PricedNearbyPlace, focus: NonNullab
   return activityFamily(place) === focusedActivityFamily(focus);
 };
 
-const diversifyActivityTier = (candidates: readonly PricedNearbyPlace[]): PricedNearbyPlace[] => {
-  const buckets = new Map<ActivityFamily | 'other', PricedNearbyPlace[]>();
-  for (const candidate of candidates) {
-    const family = activityFamily(candidate) ?? 'other';
-    const bucket = buckets.get(family) ?? [];
-    bucket.push(candidate);
-    buckets.set(family, bucket);
-  }
-  const families = [...buckets.keys()];
-  const result: PricedNearbyPlace[] = [];
-  for (let index = 0; result.length < candidates.length; index += 1) for (const family of families) {
-    const candidate = buckets.get(family)?.[index];
-    if (candidate) result.push(candidate);
-  }
-  return result;
-};
+const diversifyActivityTier = (candidates: readonly PricedNearbyPlace[]): PricedNearbyPlace[] => roundRobinByKey(candidates, (candidate) => activityFamily(candidate) ?? 'other');
 
 /** Round-robin category families, retaining supplied relevance/distance order within each family. */
 export function diversifyActivityCandidates(candidates: readonly PricedNearbyPlace[], context: Pick<StageRankingContext, 'activityFocus' | 'outingContext'> = {}): PricedNearbyPlace[] {

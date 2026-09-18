@@ -1,5 +1,6 @@
 import type { FoodFocus } from './ask-wise-normalization.ts';
 import type { PricedNearbyPlace } from './places.ts';
+import { classifyBudgetStatus } from '../../../../packages/planning/src/budget.ts';
 import { distanceBetweenCoordinates } from './distance.ts';
 
 export const PLANNING_BUDGET_EVIDENCE_LIMIT = 12;
@@ -43,11 +44,7 @@ export function coordinatesFromPostgisPoint(value: unknown): { latitude: number;
 }
 
 export function budgetStatusForCandidate(place: Pick<PricedNearbyPlace, 'has_price' | 'pricing_basis' | 'estimated_group_min_minor' | 'estimated_group_max_minor'>, budgetMinor: number | null | undefined) {
-  if (budgetMinor === null || budgetMinor === undefined || !place.has_price || place.estimated_group_min_minor === null || place.estimated_group_max_minor === null) return 'unknown';
-  const exact = place.pricing_basis === 'branch_verified';
-  if (place.estimated_group_max_minor <= budgetMinor) return exact ? 'fits' : 'likely_fits';
-  if (place.estimated_group_min_minor > budgetMinor) return exact ? 'exceeds' : 'likely_exceeds';
-  return 'may_exceed';
+  return classifyBudgetStatus(place, budgetMinor);
 }
 
 export function withPlanningBudgetStatus(candidates: readonly PricedNearbyPlace[], budgetMinor: number | null | undefined): PricedNearbyPlace[] {

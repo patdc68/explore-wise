@@ -108,6 +108,17 @@ test('persistence: full snapshot restores identically in progress and after comp
   assert.deepEqual(completedReload.getSnapshot().active, reopened.getSnapshot().active);
 });
 
+test('optional itinerary currency decodes while legacy snapshots remain valid', () => {
+  const legacy = { itinerary: plan(), execution: initial() };
+  assert.equal(decodeLiveItinerary(encodeLiveItinerary(legacy)).invalid, false);
+  const withCurrency = { ...plan(), currencyCode: 'PHP' } as any;
+  const decoded = decodeLiveItinerary(encodeLiveItinerary({ itinerary: withCurrency, execution: createExecution('currency', withCurrency) }));
+  assert.equal(decoded.invalid, false);
+  assert.equal(decoded.active?.itinerary.currencyCode, 'PHP');
+  const invalid = JSON.parse(encodeLiveItinerary({ itinerary: { ...withCurrency, currencyCode: 'peso' }, execution: createExecution('invalid-currency', withCurrency) }));
+  assert.equal(decodeLiveItinerary(JSON.stringify(invalid)).invalid, true);
+});
+
 test('invalid storage never manufactures completed stops or crashes', async () => {
   const good = { itinerary: plan(), execution: start() };
   const corruptions: unknown[] = [null, {}, { version: 2, active: good }, { version: 1, active: { ...good, itinerary: {} } }];

@@ -35,6 +35,7 @@ export const number = (min: number, max: number, integer = false): Validator<num
   typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max && (!integer || Number.isSafeInteger(value))
     ? value : fail(path, `Expected ${integer ? 'safe integer' : 'number'} between ${min} and ${max}`);
 export const nullable = <T>(inner: Validator<T>): Validator<T | null> => (value, path) => value === null ? null : inner(value, path);
+export const optional = <T>(inner: Validator<T>): Validator<T | undefined> => (value, path) => value === undefined ? undefined : inner(value, path);
 export function partial<S extends Record<string, Validator<unknown>>>(shape: S): Validator<{ readonly [K in keyof S]?: Infer<S[K]> }> {
   return (value, path) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) fail(path, 'Expected object');

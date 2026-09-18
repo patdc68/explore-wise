@@ -14,9 +14,11 @@ import {
   type PlannerIssueCode,
 } from '../../../packages/planning/src/contracts.ts';
 import type { PlanningIntent } from '../../../packages/planning/src/intent.ts';
+import type { CandidateRetrievalRepository } from '../../../packages/planning/src/retrieval.ts';
 import type {
   AnchorCatalogRecord,
   PlannerAuthenticator,
+  PlannerDatabaseBudget,
   PlannerGenerationInput,
   PlannerGenerator,
   PlannerLogEvent,
@@ -24,7 +26,8 @@ import type {
   PlannerRateLimiter,
   PlanningBoundaryRepository,
 } from './types.ts';
-import { deferredPlannerGenerator } from './generator.ts';
+import { createDeterministicPlannerGenerator } from './generator.ts';
+import { createPlannerDatabaseBudget } from './types.ts';
 
 export const CORS_HEADERS = Object.freeze({
   'Access-Control-Allow-Origin': '*',
@@ -56,6 +59,12 @@ type BoundaryOptions = Readonly<{
 }>;
 
 type BoundaryIssue = Readonly<{ code: PlannerIssueCode; message: string; path?: string }>;
+
+class DatabaseBudgetExhaustedError extends Error {
+  constructor() {
+    super('planner_database_call_budget_exhausted');
+  }
+}
 
 function defaultRequestId(): string {
   const randomUuid = globalThis.crypto?.randomUUID;
@@ -221,7 +230,7 @@ function logResult(logger: PlannerLogger, event: Omit<PlannerLogEvent, 'event'>)
 }
 
 export function createGeneratePlanHandler(options: BoundaryOptions): (request: Request) => Promise<Response> {
-  const generator = options.generator ?? deferredPlannerGenerator;
+  const generator = options.generator ?? createDeterministicPlannerGenerator(options.repository as unknown as CandidateRetrievalRepository);
   const rateLimiter = options.rateLimiter ?? (() => false);
   const logger = options.logger ?? ((event) => console.log(JSON.stringify(event)));
   const requestIdFactory = options.requestId ?? defaultRequestId;
@@ -230,6 +239,7 @@ export function createGeneratePlanHandler(options: BoundaryOptions): (request: R
   return async (request) => {
     const startedAt = clock();
     const requestId = requestIdFactory();
+    const databaseBudget = createPlannerDatabaseBudget();
     const baseLog = (extra: Omit<PlannerLogEvent, 'event' | 'requestId' | 'latencyMs'>): void => logResult(logger, {
       ...extra,
       requestId,
@@ -237,7 +247,7 @@ export function createGeneratePlanHandler(options: BoundaryOptions): (request: R
     });
     const httpFailure = (code: PlannerIssueCode, message: string, status: number, retryable = false, stage: PlannerLogEvent['validationStage'] = 'http'): Response => {
       const response = errorBody(requestId, code, message, retryable);
-      baseLog({ requestVersion: GENERATION_REQUEST_VERSION, responseVersion: GENERATION_RESPONSE_VERSION, authClass: 'anonymous', outcome: 'error', failureCode: code, validationStage: stage, anchorCount: 0, databaseCallCount: 0, retryable });
+      baseLog({ requestVersion: GENERATION_REQUEST_VERSION, responseVersion: GENERATION_RESPONSE_VERSION, authClass: 'anonymous', outcome: 'error', failureCode: code, validationStage: stage, anchorCount: 0, databaseCallCount: databaseBudget.usedCalls, retryable });
       return json(response, status);
     };
     if (request.method === 'OPTIONS') return emptyOptions();
@@ -267,11 +277,11 @@ export function createGeneratePlanHandler(options: BoundaryOptions): (request: R
       const mapped = issueFromValidation(body, parsed.issues);
       if (mapped.code === 'anchor_duplicate' || mapped.code === 'anchor_excluded') {
         const response = clarificationBody(requestId, [{ code: mapped.code, message: mapped.message, ...(mapped.path ? { path: mapped.path } : {}) }], []);
-        baseLog({ requestVersion: GENERATION_REQUEST_VERSION, responseVersion: GENERATION_RESPONSE_VERSION, authClass: auth.authClass, outcome: 'clarification_needed', failureCode: mapped.code, validationStage: 'contract', anchorCount: 0, databaseCallCount: 0, retryable: false });
+        baseLog({ requestVersion: GENERATION_REQUEST_VERSION, responseVersion: GENERATION_RESPONSE_VERSION, authClass: auth.authClass, outcome: 'clarification_needed', failureCode: mapped.code, validationStage: 'contract', anchorCount: 0, databaseCallCount: databaseBudget.usedCalls, retryable: false });
         return json(response, 422);
       }
       const response = errorBody(requestId, mapped.code, mapped.code === 'unsupported_version' ? safeMessage.unsupportedVersion : mapped.message, false);
-      baseLog({ requestVersion: GENERATION_REQUEST_VERSION, responseVersion: GENERATION_RESPONSE_VERSION, authClass: auth.authClass, outcome: 'error', failureCode: mapped.code, validationStage: 'contract', anchorCount: 0, databaseCallCount: 0, retryable: false });
+      baseLog({ requestVersion: GENERATION_REQUEST_VERSION, responseVersion: GENERATION_RESPONSE_VERSION, authClass: auth.authClass, outcome: 'error', failureCode: mapped.code, validationStage: 'contract', anchorCount: 0, databaseCallCount: databaseBudget.usedCalls, retryable: false });
       return json(response, 400);
     }
 
@@ -279,30 +289,29 @@ export function createGeneratePlanHandler(options: BoundaryOptions): (request: R
     const intent = requestValue.intent;
     if (intent.location.geography.kind === 'locality') {
       const response = clarificationBody(requestId, [{ code: 'unsupported_geography', message: safeMessage.unsupportedGeography, path: '$.intent.location.geography' }], []);
-      baseLog({ requestVersion: requestValue.requestVersion, responseVersion: GENERATION_RESPONSE_VERSION, authClass: auth.authClass, outcome: 'clarification_needed', failureCode: 'unsupported_geography', validationStage: 'geography', anchorCount: intent.anchors.length, databaseCallCount: 0, retryable: false });
+      baseLog({ requestVersion: requestValue.requestVersion, responseVersion: GENERATION_RESPONSE_VERSION, authClass: auth.authClass, outcome: 'clarification_needed', failureCode: 'unsupported_geography', validationStage: 'geography', anchorCount: intent.anchors.length, databaseCallCount: databaseBudget.usedCalls, retryable: false });
       return json(response, 422);
     }
     if (categoryCodesForLookup(intent).length > MAX_CATEGORY_CODES_PER_QUERY) {
       return httpFailure('invalid_request', safeMessage.invalidRequest, 400, false, 'contract');
     }
 
-    let databaseCallCount = 0;
     try {
       const categoryCodes = categoryCodesForLookup(intent);
       const categories = categoryCodes.length > 0
-        ? await (async () => { databaseCallCount += 1; return options.repository.findActiveCategories(categoryCodes); })()
+        ? await callDatabase(databaseBudget, () => options.repository.findActiveCategories(categoryCodes))
         : [];
       const categorySet = new Set(categories.map((category) => category.code));
       const missingCategories = categoryCodes.filter((code) => !categorySet.has(code));
       if (missingCategories.length > 0) {
         const response = clarificationBody(requestId, [{ code: 'hard_constraint_unsatisfied', message: 'One or more requested category constraints are not active in the catalog.', path: '$.intent.constraints' }], []);
-        baseLog({ requestVersion: requestValue.requestVersion, responseVersion: GENERATION_RESPONSE_VERSION, authClass: auth.authClass, outcome: 'clarification_needed', failureCode: 'hard_constraint_unsatisfied', validationStage: 'categories', anchorCount: intent.anchors.length, databaseCallCount, retryable: false });
+        baseLog({ requestVersion: requestValue.requestVersion, responseVersion: GENERATION_RESPONSE_VERSION, authClass: auth.authClass, outcome: 'clarification_needed', failureCode: 'hard_constraint_unsatisfied', validationStage: 'categories', anchorCount: intent.anchors.length, databaseCallCount: databaseBudget.usedCalls, retryable: false });
         return json(response, 422);
       }
 
       const anchorIds = anchorIdsFor(intent);
       const records = anchorIds.length > 0
-        ? await (async () => { databaseCallCount += 1; return options.repository.readAnchors(anchorIds); })()
+        ? await callDatabase(databaseBudget, () => options.repository.readAnchors(anchorIds))
         : [];
       const recordById = new Map(records.map((record) => [record.placeId.toLowerCase(), record]));
       const hardRadius = intent.location.geography.radiusMeters;
@@ -329,34 +338,44 @@ export function createGeneratePlanHandler(options: BoundaryOptions): (request: R
       }
       if (anchorIssues.length > 0) {
         const response = clarificationBody(requestId, anchorIssues, reviews);
-        baseLog({ requestVersion: requestValue.requestVersion, responseVersion: GENERATION_RESPONSE_VERSION, authClass: auth.authClass, outcome: 'clarification_needed', failureCode: anchorIssues[0]?.code, validationStage: 'anchors', anchorCount: intent.anchors.length, databaseCallCount, retryable: false });
+        baseLog({ requestVersion: requestValue.requestVersion, responseVersion: GENERATION_RESPONSE_VERSION, authClass: auth.authClass, outcome: 'clarification_needed', failureCode: anchorIssues[0]?.code, validationStage: 'anchors', anchorCount: intent.anchors.length, databaseCallCount: databaseBudget.usedCalls, retryable: false });
         return json(response, 422);
       }
 
-      const generationInput: PlannerGenerationInput = { request: requestValue, requestId, auth, anchors: validAnchors, anchorReviews: reviews };
+      const generationInput: PlannerGenerationInput = { request: requestValue, requestId, auth, anchors: validAnchors, anchorReviews: reviews, databaseBudget };
       let generated: GeneratePlanResponseV1;
       try {
         generated = await generator(generationInput);
       } catch {
         const response = errorBody(requestId, 'internal_error', safeMessage.internalError, true);
-        baseLog({ requestVersion: requestValue.requestVersion, responseVersion: GENERATION_RESPONSE_VERSION, authClass: auth.authClass, outcome: 'error', failureCode: 'internal_error', validationStage: 'generator', anchorCount: intent.anchors.length, databaseCallCount, retryable: true });
+        baseLog({ requestVersion: requestValue.requestVersion, responseVersion: GENERATION_RESPONSE_VERSION, authClass: auth.authClass, outcome: 'error', failureCode: 'internal_error', validationStage: 'generator', anchorCount: intent.anchors.length, databaseCallCount: databaseBudget.usedCalls, retryable: true });
         return json(response, 503);
       }
       const validatedResponse = validateGeneratePlanResponse(generated);
       if (!validatedResponse.success) {
         const response = errorBody(requestId, 'internal_error', safeMessage.internalError, true);
-        baseLog({ requestVersion: requestValue.requestVersion, responseVersion: GENERATION_RESPONSE_VERSION, authClass: auth.authClass, outcome: 'error', failureCode: 'internal_error', validationStage: 'generator', anchorCount: intent.anchors.length, databaseCallCount, retryable: true });
+        baseLog({ requestVersion: requestValue.requestVersion, responseVersion: GENERATION_RESPONSE_VERSION, authClass: auth.authClass, outcome: 'error', failureCode: 'internal_error', validationStage: 'generator', anchorCount: intent.anchors.length, databaseCallCount: databaseBudget.usedCalls, retryable: true });
         return json(response, 503);
       }
       const response = withAuthoritativeReviews(validatedResponse.data, reviews);
-      baseLog({ requestVersion: requestValue.requestVersion, responseVersion: GENERATION_RESPONSE_VERSION, authClass: auth.authClass, outcome: response.outcome, validationStage: 'generator', anchorCount: intent.anchors.length, databaseCallCount, retryable: response.outcome === 'error' ? response.error.retryable : false, ...(response.outcome === 'error' ? { failureCode: response.error.code } : {}) });
+      baseLog({ requestVersion: requestValue.requestVersion, responseVersion: GENERATION_RESPONSE_VERSION, authClass: auth.authClass, outcome: response.outcome, validationStage: 'generator', anchorCount: intent.anchors.length, databaseCallCount: databaseBudget.usedCalls, retryable: response.outcome === 'error' ? response.error.retryable : false, ...(response.outcome === 'error' ? { failureCode: response.error.code } : {}) });
       return json(response, responseStatus(response));
-    } catch {
+    } catch (error) {
+      if (error instanceof DatabaseBudgetExhaustedError) {
+        const response = errorBody(requestId, 'internal_error', safeMessage.internalError, false);
+        baseLog({ requestVersion: requestValue.requestVersion, responseVersion: GENERATION_RESPONSE_VERSION, authClass: auth.authClass, outcome: 'error', failureCode: 'internal_error', validationStage: databaseBudget.usedCalls > 0 ? 'anchors' : 'categories', anchorCount: intent.anchors.length, databaseCallCount: databaseBudget.usedCalls, retryable: false });
+        return json(response, 503);
+      }
       const response = errorBody(requestId, 'database_error', safeMessage.databaseError, true);
-      baseLog({ requestVersion: requestValue.requestVersion, responseVersion: GENERATION_RESPONSE_VERSION, authClass: auth.authClass, outcome: 'error', failureCode: 'database_error', validationStage: databaseCallCount > 0 ? 'anchors' : 'categories', anchorCount: intent.anchors.length, databaseCallCount, retryable: true });
+      baseLog({ requestVersion: requestValue.requestVersion, responseVersion: GENERATION_RESPONSE_VERSION, authClass: auth.authClass, outcome: 'error', failureCode: 'database_error', validationStage: databaseBudget.usedCalls > 0 ? 'anchors' : 'categories', anchorCount: intent.anchors.length, databaseCallCount: databaseBudget.usedCalls, retryable: true });
       return json(response, 503);
     }
   };
+}
+
+async function callDatabase<T>(budget: PlannerDatabaseBudget, operation: () => Promise<T>): Promise<T> {
+  if (!budget.tryConsume()) throw new DatabaseBudgetExhaustedError();
+  return operation();
 }
 
 export const DEFAULT_GENERATE_PLAN_BODY_LIMIT = MAX_REQUEST_BODY_BYTES;

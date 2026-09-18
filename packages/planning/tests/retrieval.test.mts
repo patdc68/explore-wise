@@ -255,3 +255,13 @@ test('database call cap and repository failures are typed without leaking intern
   assert.equal(failed.issues[0]?.code, 'database_error');
   assert.equal(failed.issues[0]?.message.includes('SQL'), false);
 });
+
+test('an external request budget is consumed without resetting the retrieval counter', async () => {
+  const repository = new FakeRepository(() => [place(firstId)]);
+  let allowance = 2;
+  const result = await createCandidateRetrievalService(repository, { onDatabaseCall: () => allowance > 0 ? (allowance -= 1, true) : false }).retrieve({ stageId: 'stage-1', sequentialOrigin: origin, intent: intent(), requiredCandidateCount: 1 });
+  assert.equal(result.outcome, 'policy_blocked');
+  assert.equal(result.metadata.databaseCallCount, 2);
+  assert.equal(allowance, 0);
+  assert.equal(repository.calls.length <= 2, true);
+});

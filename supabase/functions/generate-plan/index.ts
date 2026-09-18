@@ -1,7 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.113.0';
 import { createRequestAuthenticator } from './auth.ts';
 import { createGeneratePlanHandler } from './handler.ts';
-import { deferredPlannerGenerator } from './generator.ts';
+import { createDeterministicPlannerGenerator } from './generator.ts';
 import { SupabasePlanningRepository } from './repository.ts';
 import { createInMemoryRateLimiter } from './rate-limit.ts';
 
@@ -43,7 +43,7 @@ const authenticate = createRequestAuthenticator(
 
 const handleRequest = createGeneratePlanHandler({
   repository,
-  generator: deferredPlannerGenerator,
+  generator: createDeterministicPlannerGenerator(repository),
   authorize: authenticate,
   rateLimiter: createInMemoryRateLimiter(),
 });

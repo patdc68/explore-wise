@@ -11,8 +11,10 @@ import {
   type GeneratePlanResponseV1,
 } from '../../../packages/planning/src/contracts.ts';
 import { type PlanningIntent } from '../../../packages/planning/src/intent.ts';
+import type { CandidateRetrievalRepository, CandidateSearchRequest } from '../../../packages/planning/src/retrieval.ts';
 import { authContextForTests, createRequestAuthenticator } from './auth.ts';
 import { createGeneratePlanHandler } from './handler.ts';
+import { createDeterministicPlannerGenerator } from './generator.ts';
 import { createInMemoryRateLimiter } from './rate-limit.ts';
 import type { AnchorCatalogRecord, PlannerGenerationInput, PlannerLogEvent, PlanningBoundaryRepository } from './types.ts';
 
@@ -98,6 +100,32 @@ function repository(records: readonly AnchorCatalogRecord[] = [], activeCategori
     readAnchors: async (placeIds) => records.filter((record) => placeIds.includes(record.placeId)),
     findActivePlaces: async (placeIds) => records.filter((record) => placeIds.includes(record.placeId) && record.status === 'active' && record.categoryActive && record.place !== null).map((record) => record.place!),
     findActiveCategories: async (codes) => activeCategories.filter((code) => codes.includes(code)).map((code) => ({ code, name: code, isActive: true })),
+  };
+}
+
+function pricedPlace(placeId: string, categoryCode: string, overrides: Record<string, unknown> = {}) {
+  return {
+    ...placeRecord(placeId).place!,
+    category_code: categoryCode,
+    category_name: categoryCode,
+    has_price: true,
+    pricing_basis: 'branch_verified',
+    pricing_status: 'current',
+    pricing_unit: 'per_group',
+    currency_code: 'PHP',
+    estimated_group_min_minor: 1_000,
+    estimated_group_max_minor: 2_000,
+    ...overrides,
+  };
+}
+
+function candidateRepository(values: readonly ReturnType<typeof pricedPlace>[], records: readonly AnchorCatalogRecord[] = [], activeCategories: readonly string[] = []): PlanningBoundaryRepository & CandidateRetrievalRepository {
+  const boundary = repository(records, activeCategories);
+  return {
+    ...boundary,
+    findNearbyCandidates: async (query: CandidateSearchRequest) => values.filter((value) => query.categoryCodes.length === 0 || query.categoryCodes.some((code) => value.category_code === code || value.category_code.startsWith(`${code}.`) || code.startsWith(`${value.category_code}.`))),
+    findAnchorCandidate: async ({ anchor }) => values.find((value) => value.place_id.toLowerCase() === anchor.placeId.toLowerCase()) ?? null,
+    findChainMemberships: async () => [],
   };
 }
 
@@ -303,6 +331,57 @@ test('valid requests reach the injected generator, while repository failures bec
   assert.equal(failedResponse.status, 503);
   assert.equal((failedJson.error as { code: string }).code, 'database_error');
   assert.equal(JSON.stringify(failedJson).includes('SQL internals'), false);
+});
+
+test('the active deterministic generator returns a grounded proposal through the real boundary', async () => {
+  const values = [pricedPlace(id(20), 'food.cafe'), pricedPlace(id(21), 'attraction.museum')];
+  const planningRepository = candidateRepository(values, [], ['food.restaurant']);
+  const activeIntent = intent({ food: { state: 'selected', values: ['cafe'] }, activities: { state: 'selected', values: ['art_museum'] } });
+  const events: PlannerLogEvent[] = [];
+  const handler = createGeneratePlanHandler({
+    repository: planningRepository,
+    generator: createDeterministicPlannerGenerator(planningRepository),
+    authorize: async () => authContextForTests(),
+    rateLimiter: () => false,
+    logger: (event) => events.push(event),
+    requestId: () => 'real-generator-request',
+    now: () => 1_000,
+  });
+  const response = await handler(request(body({ intent: activeIntent })));
+  const parsed = await jsonResponse(response) as { outcome: string; proposal?: { state?: { stops?: Array<{ place: { place_id: string } }> }; budgetSummary?: { currencyCode: string } } };
+  assert.equal(parsed.outcome, 'proposal');
+  assert.deepEqual(parsed.proposal?.state?.stops?.map((stop) => stop.place.place_id), [id(20), id(21)]);
+  assert.equal(parsed.proposal?.budgetSummary?.currencyCode, 'PHP');
+  assert.ok((events.at(-1)?.databaseCallCount ?? 99) <= 20);
+  assert.equal(JSON.stringify(parsed).includes('Plan generation is not available'), false);
+});
+
+test('preflight and deterministic retrieval share one request-wide twenty-call allowance', async () => {
+  const values = Array.from({ length: 12 }, (_, index) => pricedPlace(id(index + 30), index % 2 === 0 ? 'food.cafe' : 'attraction.museum'));
+  const planningRepository = candidateRepository(values, [], ['food.restaurant']);
+  let repositoryCalls = 0;
+  const countedRepository = {
+    ...planningRepository,
+    findActiveCategories: async (codes: readonly string[]) => { repositoryCalls += 1; return planningRepository.findActiveCategories(codes); },
+    findNearbyCandidates: async (query: CandidateSearchRequest) => { repositoryCalls += 1; return planningRepository.findNearbyCandidates(query); },
+    findChainMemberships: async (placeIds: readonly string[]) => { repositoryCalls += 1; return planningRepository.findChainMemberships!(placeIds); },
+  };
+  const activeIntent = intent({
+    schedule: { kind: 'duration', durationMinutes: 720, outingDate: null, startTime: null, timeZone: null },
+    constraints: { excludedPlaceIds: [], excludedCategoryCodes: ['food.restaurant'], categoryScope: { kind: 'any' } },
+  });
+  const events: PlannerLogEvent[] = [];
+  const handler = createGeneratePlanHandler({
+    repository: countedRepository,
+    generator: createDeterministicPlannerGenerator(countedRepository),
+    authorize: async () => authContextForTests(),
+    rateLimiter: () => false,
+    logger: (event) => events.push(event),
+    requestId: () => 'call-budget-request',
+  });
+  await handler(request(body({ intent: activeIntent })));
+  assert.ok(repositoryCalls <= 20);
+  assert.equal(events.at(-1)?.databaseCallCount, repositoryCalls);
 });
 
 test('per-person budgets remain valid at the boundary and generator failures are safe retryable errors', async () => {

@@ -4,6 +4,7 @@ import type {
   GeneratePlanResponseV1,
 } from '../../../packages/planning/src/contracts.ts';
 import type { CatalogPlaceAnchor } from '../../../packages/planning/src/engine.ts';
+import { MAX_DATABASE_CALLS } from '../../../packages/planning/src/policy.ts';
 
 export type PlannerAuthClass = 'anonymous' | 'authenticated';
 
@@ -36,15 +37,42 @@ export type PlanningBoundaryRepository = Readonly<{
   findActiveCategories: CategoryLookup['findActiveCategories'];
 }>;
 
+/**
+ * Mutable only through the request-local method.  The boundary and generator
+ * share this object so preflight and retrieval consume one allowance.
+ */
+export type PlannerDatabaseBudget = Readonly<{
+  maxCalls: number;
+  readonly usedCalls: number;
+  readonly remainingCalls: number;
+  tryConsume: () => boolean;
+}>;
+
+export function createPlannerDatabaseBudget(maxCalls = MAX_DATABASE_CALLS): PlannerDatabaseBudget {
+  const cap = Number.isSafeInteger(maxCalls) ? Math.min(MAX_DATABASE_CALLS, Math.max(0, maxCalls)) : MAX_DATABASE_CALLS;
+  let usedCalls = 0;
+  return {
+    maxCalls: cap,
+    get usedCalls() { return usedCalls; },
+    get remainingCalls() { return Math.max(0, cap - usedCalls); },
+    tryConsume: () => {
+      if (usedCalls >= cap) return false;
+      usedCalls += 1;
+      return true;
+    },
+  };
+}
+
 export type PlannerGenerationInput = Readonly<{
   request: GeneratePlanRequestV1;
   requestId: string;
   auth: PlannerAuthContext;
   anchors: readonly AnchorCatalogRecord[];
   anchorReviews: readonly AnchorReview[];
+  databaseBudget: PlannerDatabaseBudget;
 }>;
 
-/** Phase 3B.3/3B.4 will provide the real deterministic generator through this seam. */
+/** The Edge boundary invokes the deterministic V1 generator through this seam. */
 export type PlannerGenerator = (input: PlannerGenerationInput) => Promise<GeneratePlanResponseV1>;
 
 export type PlannerAuthenticator = (request: Request) => Promise<PlannerAuthContext | null>;

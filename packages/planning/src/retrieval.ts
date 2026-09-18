@@ -146,6 +146,17 @@ export type CandidateRetrievalService = Readonly<{
   retrieve: (input: CandidateRetrievalInput) => Promise<CandidateRetrievalResult>;
 }>;
 
+export type CandidateRetrievalServiceOptions = Readonly<{
+  maxDatabaseCalls?: number;
+  /** Called immediately before each repository operation. Returning false blocks the call. */
+  onDatabaseCall?: () => boolean;
+  /** Optional composition-facing evidence targets. Defaults preserve the full bounded pools. */
+  evidenceTargets?: Readonly<{
+    budget?: number;
+    preference?: number;
+  }>;
+}>;
+
 const CATEGORY_CHILDREN: Readonly<Record<string, readonly string[]>> = Object.freeze({
   food: ['food.restaurant', 'food.cafe', 'food.bakery', 'food.dessert'],
   activity: ['activity.recreation'],
@@ -625,12 +636,18 @@ function resultForIssue(request: StructuredCandidateRetrievalRequest | null, sig
 
 export function createCandidateRetrievalService(
   repository: CandidateRetrievalRepository,
-  options: Readonly<{ maxDatabaseCalls?: number }> = {},
+  options: CandidateRetrievalServiceOptions = {},
 ): CandidateRetrievalService {
   const requestedCallCap = options.maxDatabaseCalls ?? MAX_DATABASE_CALLS;
   const databaseCallCap = Number.isSafeInteger(requestedCallCap)
     ? Math.min(MAX_DATABASE_CALLS, Math.max(0, requestedCallCap))
     : MAX_DATABASE_CALLS;
+  const evidenceTarget = (value: number | undefined, fallback: number): number => {
+    if (value === undefined || !Number.isSafeInteger(value)) return fallback;
+    return Math.min(fallback, Math.max(0, value));
+  };
+  const budgetEvidenceTarget = evidenceTarget(options.evidenceTargets?.budget, MAX_BUDGET_EVIDENCE_CANDIDATES);
+  const preferenceEvidenceTarget = evidenceTarget(options.evidenceTargets?.preference, MAX_PREFERENCE_EVIDENCE_CANDIDATES);
   return {
     retrieve: async (input): Promise<CandidateRetrievalResult> => {
       const built = buildRequest(input);
@@ -649,6 +666,11 @@ export function createCandidateRetrievalService(
 
       const callRepository = async <T>(operation: () => Promise<T>): Promise<T | null> => {
         if (databaseCallCount >= databaseCallCap) {
+          databaseCallCapReached = true;
+          policyBlocked = true;
+          return null;
+        }
+        if (options.onDatabaseCall && !options.onDatabaseCall()) {
           databaseCallCapReached = true;
           policyBlocked = true;
           return null;
@@ -748,13 +770,13 @@ export function createCandidateRetrievalService(
         const broadCount = await query('broad', request.broadCategoryCodes, MAX_BROAD_CANDIDATES, null);
         if (policyBlocked || repositoryError) return;
         const knownBudgetCount = [...merged.values()].filter((candidate) => candidate.priceEvidence === 'known').length;
-        if (request.budgetMinor !== null && knownBudgetCount < MAX_BUDGET_EVIDENCE_CANDIDATES) {
-          await query('budget_evidence', request.broadCategoryCodes, MAX_BUDGET_EVIDENCE_CANDIDATES, request.budgetMinor);
+        if (request.budgetMinor !== null && knownBudgetCount < budgetEvidenceTarget && budgetEvidenceTarget > 0) {
+          await query('budget_evidence', request.broadCategoryCodes, budgetEvidenceTarget, request.budgetMinor);
         }
         if (policyBlocked || repositoryError) return;
         const preferenceCount = [...merged.values()].filter((candidate) => candidate.preferenceSignals.size > 0).length;
-        if (request.preferenceCategoryCodes.length > 0 && preferenceCount < MAX_PREFERENCE_EVIDENCE_CANDIDATES) {
-          await query('preference_evidence', request.preferenceCategoryCodes, MAX_PREFERENCE_EVIDENCE_CANDIDATES, null);
+        if (request.preferenceCategoryCodes.length > 0 && preferenceCount < preferenceEvidenceTarget && preferenceEvidenceTarget > 0) {
+          await query('preference_evidence', request.preferenceCategoryCodes, preferenceEvidenceTarget, null);
         }
         if (expanded && broadCount === 0) safeWarningPush(warnings, warning('mobility_expanded', 'The preferred sequential radius did not provide enough candidates; the hard geography radius was used.', request.stageId));
       };

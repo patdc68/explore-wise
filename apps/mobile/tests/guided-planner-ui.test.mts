@@ -5,6 +5,7 @@ import test from 'node:test';
 import ts from 'typescript';
 import * as planner from '../src/services/guided-planner.ts';
 import * as questions from '../../../packages/planning/src/questions.ts';
+import { validatePlanningIntent } from '../../../packages/planning/src/intent.ts';
 
 const require = createRequire(import.meta.url);
 function load(path: string, dependencies: Record<string, unknown>) {
@@ -29,7 +30,9 @@ const uuid2 = '22222222-2222-4222-8222-222222222222';
 
 // Run the production components/callbacks; native hosts, networking and device APIs are stubs.
 // Hook state is isolated by component position/key, including nested custom inputs and search.
-function harness(mode: 'light' | 'dark' = 'light') {
+type GenerationMode = 'success' | 'pending' | 'clarification' | 'no_plan' | 'retryable_error' | 'non_retryable_error' | 'transport';
+
+function harness(mode: 'light' | 'dark' = 'light', generationMode: GenerationMode = 'success') {
   let path = ''; let cursor = 0;
   const state = new Map<string, any[]>();
   const react = {
@@ -39,25 +42,55 @@ function harness(mode: 'light' | 'dark' = 'light') {
       return [values[i], (next: any) => { values[i] = typeof next === 'function' ? next(values[i]) : next; }];
     },
     useRef(initial: any) { return react.useState({ current: initial })[0]; },
-    useEffect: () => {},
+    useEffect(effect: () => unknown) { effect(); },
   };
-  const calls = { catalog: [] as any[], geocoder: [] as string[], exits: 0, alerts: [] as any[], dispatch: [] as any[] };
+  const calls = { catalog: [] as any[], geocoder: [] as string[], exits: 0, routes: [] as string[], alerts: [] as any[], dispatch: [] as any[], generation: [] as any[], guidedProposal: null as any };
   let prevent: any; let removeCallback: any;
-  let searchFailure = false; let pending: Promise<any[]> | null = null;
+  let searchFailure = false; let pending: Promise<any[]> | null = null; let releaseGeneration: (() => void) | null = null;
   const theme = { useDesignTheme: () => tokens.ColorTokens[mode] };
-  const clay = Object.fromEntries(['ClayCard', 'ClayInput', 'ChoiceChip', 'IconButton', 'PrimaryButton', 'SecondaryButton', 'TertiaryButton'].map((name) => [name, name]));
-  const shared = { react, 'react-native': { ...native, BackHandler: { addEventListener: () => ({ remove() {} }) }, Alert: { alert: (...args: any[]) => calls.alerts.push(args) } }, '@/components/themed-text': { ThemedText: 'Text' }, '@/components/ui/clay': clay, '@/constants/theme': tokens, '@/hooks/use-theme': theme, '@/services/guided-planner': planner };
+  const clay = Object.fromEntries(['ClayCard', 'ClayInput', 'ChoiceChip', 'IconButton', 'LoadingCard', 'PrimaryButton', 'SecondaryButton', 'TertiaryButton'].map((name) => [name, name]));
+  const guidedService = {
+    buildGeneratePlanRequest: (draft: any, draftRevision: number) => { const parsed = planner.validatePlannerPreview(draft); return parsed.success ? { success: true, data: { requestVersion: 1, intent: parsed.data, draftRevision } } : parsed; },
+    guidedPlanGeneration: {
+      generate: (request: any) => {
+        calls.generation.push(request);
+        const proposal = {
+          intent: request.intent,
+          state: { start: { ...request.intent.location.coordinates, label: request.intent.location.label }, budgetMinor: request.intent.budget.amountMinor, partySize: request.intent.party.size, currencyCode: request.intent.budget.currencyCode, stages: [], stops: [] },
+          missingStageIds: [], historyKey: 'guided-test',
+          budgetSummary: { currencyCode: request.intent.budget.currencyCode, basis: request.intent.budget.basis, strictness: request.intent.budget.strictness, budgetMinor: request.intent.budget.amountMinor, normalizedTotalMinor: request.intent.budget.amountMinor, partySize: request.intent.party.size, knownMinMinor: 0, knownMaxMinor: 0, knownStopCount: 0, unknownStopCount: 0, currencyMismatchStopCount: 0, affordability: 'not_applicable' },
+          anchorInclusions: [], appliedPreferences: [], unappliedPreferences: [], warnings: [],
+        };
+        const result = generationMode === 'clarification'
+          ? { kind: 'response', response: { responseVersion: 1, requestId: 'guided-clarification', outcome: 'clarification_needed', anchorReviews: [], issues: [{ code: 'strict_budget_impossible', message: 'internal detail' }] } }
+          : generationMode === 'no_plan'
+            ? { kind: 'response', response: { responseVersion: 1, requestId: 'guided-no-plan', outcome: 'no_plan', anchorReviews: [], issues: [{ code: 'no_candidates', message: 'internal detail' }] } }
+            : generationMode === 'retryable_error' || generationMode === 'non_retryable_error'
+              ? { kind: 'response', response: { responseVersion: 1, requestId: 'guided-error', outcome: 'error', error: { code: 'database_error', message: 'internal detail', retryable: generationMode === 'retryable_error' } } }
+              : generationMode === 'transport'
+                ? { kind: 'transport_error', error: { kind: 'network', retryable: true } }
+                : { kind: 'response', response: { responseVersion: 1, requestId: 'guided-success', outcome: 'proposal', anchorReviews: [], proposal } };
+        if (generationMode === 'pending') return new Promise((resolve) => { releaseGeneration = () => resolve(result); });
+        return Promise.resolve(result);
+      },
+    },
+    adaptGuidedPlanProposal: (response: any, request: any) => ({ ...response.proposal, source: 'guided', outcome: response.outcome, request, anchorReviews: response.anchorReviews }),
+  };
+  const shared = { react, 'react-native': { ...native, BackHandler: { addEventListener: () => ({ remove() {} }) }, Alert: { alert: (...args: any[]) => calls.alerts.push(args) } }, '@/components/themed-text': { ThemedText: 'Text' }, '@/components/ui/clay': clay, '@/constants/theme': tokens, '@/hooks/use-theme': theme, '@/services/guided-planner': planner, '@/services/guided-plan-generation': guidedService, '@/providers/planning-handoff-provider': { usePlanningHandoff: () => ({ submitGuidedPlanProposal: (proposal: any) => { calls.guidedProposal = proposal; } }) } };
   const search = load('components/guided-planner/planner-search.tsx', { ...shared,
     'expo-location': { requestForegroundPermissionsAsync: async () => ({ status: 'granted' }), geocodeAsync: async (query: string) => { calls.geocoder.push(query); return [{ latitude: 1, longitude: 2 }]; } },
     '@/services/places': { searchCatalogPlaces: async (input: any) => { calls.catalog.push(input); if (pending) return pending; if (searchFailure) throw Error('offline'); return [{ place_id: input.query === 'SECOND PLACE' ? uuid2 : uuid, name: input.query === 'SECOND PLACE' ? 'SECOND CATALOG PLACE' : 'TEST CATALOG PLACE WITH A LONG NAME', city: 'Test city', region: 'Test region' }]; } },
   });
   const screen = load('components/guided-planner/guided-planner-screen.tsx', { ...shared,
     '@expo/vector-icons/Ionicons': { __esModule: true, default: 'Icon' },
-    'expo-router': { useRouter: () => ({ canGoBack: () => true, back: () => { if (prevent) removeCallback({ data: { action: 'back' } }); else calls.exits++; }, replace: () => calls.exits++ }), useNavigation: () => ({ dispatch: (action: any) => calls.dispatch.push(action) }) },
+    'expo-router': { useRouter: () => ({ canGoBack: () => true, back: () => { if (prevent) removeCallback({ data: { action: 'back' } }); else calls.exits++; }, replace: (route: string) => { calls.routes.push(route); calls.exits++; } }), useNavigation: () => ({ dispatch: (action: any) => calls.dispatch.push(action) }) },
     'expo-router/react-navigation': { usePreventRemove: (value: boolean, cb: any) => { prevent = value; removeCallback = cb; } },
     'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView' },
     '@/providers/current-location-provider': { useCurrentLocation: () => ({ status: 'ready', selection: { label: 'TEST EXPLORE LOCATION', source: 'current-location', coordinates: { latitude: 0, longitude: 0 } }, requestCurrentLocation: async () => ({ label: 'TEST GPS', source: 'current-location', coordinates: { latitude: 1, longitude: 1 } }) }) },
     '../../../../../packages/planning/src/questions': questions,
+    '../../../../../packages/planning/src/draft': { anchorReviewState: () => null, recordAnchorReview: (draft: any) => draft, finalizePlannerDraft: (draft: any) => ({ success: true, data: planner.validatePlannerPreview(draft).data }) },
+    '../../../../../packages/planning/src/contracts': {},
+    '../../../../../packages/planning/src/intent': { validatePlanningIntent },
     './planner-search': search,
   });
   function expand(node: any, position = 'root'): any {
@@ -72,7 +105,7 @@ function harness(mode: 'light' | 'dark' = 'light') {
     return { ...node, props: { ...node.props, children: expand(node.props.children, `${position}/${String(node.key ?? node.type)}`) } };
   }
   const render = () => expand({ type: screen.default, props: {} });
-  return { render, calls, failSearch: () => { searchFailure = true; }, pendingSearch: (promise: Promise<any[]>) => { pending = promise; },
+  return { render, calls, failSearch: () => { searchFailure = true; }, pendingSearch: (promise: Promise<any[]>) => { pending = promise; }, releaseGeneration: () => { releaseGeneration?.(); releaseGeneration = null; }, mutateDraft: (key: any, value: any) => { const values = state.get('root/GuidedPlannerScreen')!; const current = values[0] as planner.PlannerSession; values[0] = planner.setPlannerAnswer(current, key, value); },
     session: () => state.get('root/GuidedPlannerScreen')![0] as planner.PlannerSession,
     press(label: string) { const control = find(render(), (n) => n.props.accessibilityLabel === label || n.props.label === label); assert.ok(control, `Missing control: ${label}`); assert.ok(!control.props.disabled, `Disabled control: ${label}`); return control.props.onPress(); },
     input(label: string, value: string) { const control = find(render(), (n) => n.props.accessibilityLabel === label); assert.ok(control, `Missing input: ${label}`); control.props.onChangeText(value); },
@@ -93,16 +126,20 @@ function toReview(app: ReturnType<typeof harness>, occasion: string, children = 
   app.press('Keep it close');
 }
 for (const mode of ['light', 'dark'] as const) for (const [occasion, children] of [['Date', false], ['Friends', false], ['Family', true], ['Family', false], ['Just me', false]] as const) {
-  test(`${mode}: ${occasion}${occasion === 'Family' ? children ? ' with children' : ' without children' : ''} UI reaches validated mock completion`, () => {
+  test(`${mode}: ${occasion}${occasion === 'Family' ? children ? ' with children' : ' without children' : ''} UI hands off a validated guided proposal`, async () => {
     const app = harness(mode); toReview(app, occasion, children);
     assert.equal(app.session().screen, 'review');
     assert.equal(planner.validatePlannerPreview(app.session().draft).success, true);
-    app.press('Let Wise plan it');
-    assert.equal(app.session().screen, 'complete');
-    assert.ok(find(app.render(), (n) => n.type === 'Text' && n.props.children === 'Your plan brief is ready'));
+    await app.press('Let Wise plan it');
+    assert.equal(app.session().screen, 'review');
+    assert.equal(app.calls.generation.length, 1);
+    assert.equal(app.calls.generation[0].requestVersion, 1);
+    assert.equal(app.calls.generation[0].draftRevision, app.session().draft.revision);
+    assert.ok(app.calls.guidedProposal);
+    assert.equal(find(app.render(), (n) => n.type === 'Text' && n.props.children === 'Your plan brief is ready'), undefined);
     assert.deepEqual(app.calls.catalog, [], 'no real recommendation backend');
     assert.deepEqual(app.calls.geocoder, []);
-    app.press('Back to Explore'); assert.equal(app.calls.exits, 1);
+    assert.deepEqual(app.calls.routes, ['/plan']); assert.equal(app.calls.exits, 1);
   });
 }
 test('planner uses grouped phase presentation and direct single-choice advances', () => {
@@ -125,6 +162,47 @@ test('planner uses grouped phase presentation and direct single-choice advances'
   assert.equal(app.session().screen, 'review', 'mobility advances without Review tap');
   assert.ok(find(app.render(), (n) => n.type === 'Text' && n.props.children === 'Review your outing'));
 });
+
+test('a stale Guided generation response is ignored and cannot navigate or hand off a proposal', async () => {
+  const app = harness('light', 'pending'); toReview(app, 'Date');
+  const generation = app.press('Let Wise plan it');
+  assert.equal(app.session().screen, 'generating');
+  app.mutateDraft('budget', { amountMinor: 300100, currencyCode: 'PHP', basis: 'total', strictness: 'strict', unknownPricePolicy: 'allow_with_disclosure' });
+  app.render();
+  app.releaseGeneration(); await generation;
+  assert.equal(app.calls.guidedProposal, null);
+  assert.deepEqual(app.calls.routes, []);
+  assert.equal(app.session().screen, 'review');
+  assert.equal(app.session().draft.answers.budget?.amountMinor, 300100);
+});
+test('duplicate Guided submissions invoke once and cancellation returns to Review safely', async () => {
+  const app = harness('light', 'pending'); toReview(app, 'Date');
+  const submit = find(app.render(), (n) => n.props.label === 'Let Wise plan it');
+  assert.ok(submit);
+  submit.props.onPress(); submit.props.onPress();
+  assert.equal(app.calls.generation.length, 1);
+  assert.equal(app.session().screen, 'generating');
+  app.press('Cancel generation');
+  assert.equal(app.session().screen, 'review');
+  app.releaseGeneration();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(app.calls.guidedProposal, null);
+  assert.deepEqual(app.calls.routes, []);
+});
+
+for (const mode of ['clarification', 'no_plan', 'retryable_error', 'non_retryable_error', 'transport'] as const) {
+  test(`Guided ${mode} stays in Review with safe recovery`, async () => {
+    const app = harness('light', mode); toReview(app, 'Date');
+    await app.press('Let Wise plan it');
+    assert.equal(app.session().screen, 'review');
+    assert.deepEqual(app.calls.routes, []);
+    assert.equal(app.calls.guidedProposal, null);
+    assert.ok(find(app.render(), (n) => n.type === 'Text' && typeof n.props.children === 'string' && n.props.children.length > 0));
+    if (mode === 'clarification') assert.ok(find(app.render(), (n) => n.props.label === 'Review Budget'));
+    if (mode === 'no_plan' || mode === 'retryable_error' || mode === 'transport') assert.ok(find(app.render(), (n) => n.props.label === 'Retry'));
+    if (mode === 'non_retryable_error') assert.equal(find(app.render(), (n) => n.props.label === 'Retry'), undefined);
+  });
+}
 
 test('back from an auto-advanced choice returns to the previous question', () => {
   const app = harness();
@@ -203,14 +281,15 @@ test('custom budget rejects invalid and fractional-cent input before moving on',
   app.input('Budget amount (PHP)', '0'); app.press('Continue');
   assert.equal(app.session().draft.answers.budget?.amountMinor, 0);
 });
-test('invalid review edit blocks generation and keeps a visible correction path', () => {
+test('invalid review edit blocks generation and keeps a visible correction path', async () => {
   const app = harness(); toReview(app, 'Date');
   app.press('Edit Budget'); app.input('Budget amount (PHP)', '1.234'); app.press('Back');
   assert.equal(app.session().screen, 'review');
   assert.equal(find(app.render(), (n) => n.props.label === 'Let Wise plan it').props.disabled, true);
   assert.ok(find(app.render(), (n) => n.type === 'Text' && n.props.children === 'Needs attention'));
-  app.press('Edit Budget'); app.press('₱1,000'); app.press('Save answer'); app.press('Let Wise plan it');
-  assert.equal(app.session().screen, 'complete');
+  app.press('Edit Budget'); app.press('₱1,000'); app.press('Save answer'); await app.press('Let Wise plan it');
+  assert.equal(app.session().screen, 'review');
+  assert.equal(app.calls.generation.length, 1);
 });
 test('changing Solo to Family from review visits missing party and children answers', () => {
   const app = harness(); toReview(app, 'Just me');
@@ -222,7 +301,7 @@ test('changing Solo to Family from review visits missing party and children answ
   assert.equal(app.session().screen, 'review');
   assert.equal(app.session().draft.answers.budget?.amountMinor, 300000);
 });
-test('overnight schedule exposes date/time inputs and validates before saving', () => {
+test('overnight schedule exposes date/time inputs and validates before saving', async () => {
   const app = harness(); toReview(app, 'Date'); app.press('Edit Time');
   app.press('Evening');
   assert.equal(app.session().draft.answers.schedule?.kind, 'window');
@@ -230,7 +309,7 @@ test('overnight schedule exposes date/time inputs and validates before saving', 
   assert.equal(find(app.render(), (n) => n.props.label === 'Save answer').props.disabled, true);
   app.input('Outing date YYYY-MM-DD', '2026-09-18'); app.press('Same day');
   assert.equal(find(app.render(), (n) => n.props.label === 'Save answer').props.disabled, true);
-  app.press('Next day'); app.press('Save answer'); app.press('Let Wise plan it');
+  app.press('Next day'); app.press('Save answer'); await app.press('Let Wise plan it');
   assert.equal(app.session().preview?.schedule.outingDate, '2026-09-18');
 });
 test('catalog search uses whole catalog; add/remove are real UI handlers and retain UUID identity', async () => {
@@ -243,10 +322,10 @@ test('catalog search uses whole catalog; add/remove are real UI handlers and ret
   app.press('Change TEST CATALOG PLACE WITH A LONG NAME'); app.input('Search ExploreWise catalog', 'SECOND PLACE'); await app.press('Search a place');
   app.press('Select SECOND CATALOG PLACE, Test city, Test region');
   assert.equal(app.session().draft.answers.anchors?.[0].placeId, uuid2);
-  app.press('Save answer'); app.press('Let Wise plan it');
+  app.press('Save answer'); await app.press('Let Wise plan it');
   assert.equal(app.session().preview?.anchors[0].placeId, uuid2);
   assert.deepEqual(app.session().draft.anchorReviews, []);
-  app.press('Review my answers'); app.press('Edit Must-visit places');
+  app.press('Edit Must-visit places');
   app.press('Remove SECOND CATALOG PLACE');
   assert.deepEqual(app.session().draft.answers.anchors, []);
 });

@@ -1,11 +1,15 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type PropsWithChildren } from 'react';
 
 import { consumePendingWiseRequest as consumePending, pendingWiseRequest, type PendingWiseRequest } from '@/services/planning-session';
+import type { GuidedPlanProposal } from '@/services/guided-plan-generation';
 
 type PlanningHandoff = Readonly<{
   pendingWiseRequest: PendingWiseRequest | null;
   submitFromExplore: (prompt: string) => PendingWiseRequest;
   consumePendingWiseRequest: (id: string) => PendingWiseRequest | null;
+  guidedPlanProposal: GuidedPlanProposal | null;
+  submitGuidedPlanProposal: (proposal: GuidedPlanProposal) => void;
+  consumeGuidedPlanProposal: () => GuidedPlanProposal | null;
 }>;
 
 const PlanningHandoffContext = createContext<PlanningHandoff | null>(null);
@@ -14,7 +18,9 @@ const PlanningHandoffContext = createContext<PlanningHandoff | null>(null);
 export function PlanningHandoffProvider({ children }: PropsWithChildren) {
   const serial = useRef(0);
   const pendingRef = useRef<PendingWiseRequest | null>(null);
+  const guidedProposalRef = useRef<GuidedPlanProposal | null>(null);
   const [pending, setPending] = useState<PendingWiseRequest | null>(null);
+  const [guidedProposal, setGuidedProposal] = useState<GuidedPlanProposal | null>(null);
 
   const submitFromExplore = useCallback((prompt: string) => {
     const request = pendingWiseRequest(`explore-${Date.now()}-${++serial.current}`, prompt);
@@ -31,7 +37,20 @@ export function PlanningHandoffProvider({ children }: PropsWithChildren) {
     return consumed.request;
   }, []);
 
-  const value = useMemo(() => ({ pendingWiseRequest: pending, submitFromExplore, consumePendingWiseRequest }), [consumePendingWiseRequest, pending, submitFromExplore]);
+  const submitGuidedPlanProposal = useCallback((proposal: GuidedPlanProposal) => {
+    guidedProposalRef.current = proposal;
+    setGuidedProposal(proposal);
+  }, []);
+
+  const consumeGuidedPlanProposal = useCallback(() => {
+    const proposal = guidedProposalRef.current;
+    if (!proposal) return null;
+    guidedProposalRef.current = null;
+    setGuidedProposal(null);
+    return proposal;
+  }, []);
+
+  const value = useMemo(() => ({ pendingWiseRequest: pending, submitFromExplore, consumePendingWiseRequest, guidedPlanProposal: guidedProposal, submitGuidedPlanProposal, consumeGuidedPlanProposal }), [consumeGuidedPlanProposal, consumePendingWiseRequest, guidedProposal, pending, submitFromExplore, submitGuidedPlanProposal]);
   return <PlanningHandoffContext.Provider value={value}>{children}</PlanningHandoffContext.Provider>;
 }
 

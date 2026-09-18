@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 import ts from 'typescript';
+import * as money from '../src/services/money.ts';
 
 const require = createRequire(import.meta.url);
 const source = (path: string) => readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
@@ -56,7 +57,7 @@ function harness(mode: 'light' | 'dark' = 'light') {
   const base = { 'react-native': native, '@/constants/theme': tokens, '@/hooks/use-theme': hooks, '@expo/vector-icons/Ionicons': icon };
   const text = load('components/themed-text.tsx', base);
   const clay = load('components/ui/clay.tsx', { ...base, react: { useState: (initial: any) => [initial, () => {}] }, 'react-native-safe-area-context': safeArea, '@/components/themed-text': text });
-  const shared = { ...base, '@/components/themed-text': text, '@/components/ui/clay': clay };
+  const shared = { ...base, '@/components/themed-text': text, '@/components/ui/clay': clay, '@/services/money': money };
   const ask = load('components/ask-wise-card.tsx', shared);
   const price = load('components/discovery/price-summary.tsx', shared);
   const formattedDistances: number[] = [];

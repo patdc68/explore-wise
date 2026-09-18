@@ -42,7 +42,7 @@ function harness(mode: 'light' | 'dark') {
   const card = load('components/itinerary/itinerary-ui.tsx', {
     ...shared, '@/components/itinerary/itinerary-progress': progress,
     '@/components/discovery/place-visual': load('components/discovery/place-visual.tsx', { ...shared, 'expo-image': { Image: 'Image' }, '@/services/place-visual': load('services/place-visual.ts', {}) }),
-    '@/components/discovery/price-summary': load('components/discovery/price-summary.tsx', shared),
+    '@/components/discovery/price-summary': load('components/discovery/price-summary.tsx', { ...shared, '@/services/money': money }),
     '@/services/itinerary': itinerary, '@/services/money': money, '@/services/stage-progress': {},
   });
   return { progress, card, shared };
@@ -126,6 +126,8 @@ function planHarness(mode: 'light' | 'dark', store: Store) {
     '@/services/ask-wise': {}, '@/services/customize-ui': {}, '@/services/food-candidate-diversity': {},
     '@/services/catalog-search': { resolveNamedCatalogPlace: async () => null },
     '@/services/plan-location': {}, '@/services/places': {}, '@/services/guided-selection': {},
+    '@/services/guided-plan-generation': { adaptGuidedPlanProposal: (response: any, request: any) => ({ ...response.proposal, source: 'guided', outcome: response.outcome, request, anchorReviews: response.anchorReviews ?? [] }), guidedPlanGeneration: { generate: async () => ({ kind: 'transport_error', error: { kind: 'network', retryable: true } }) } },
+    '@/services/guided-plan-constraints': { guidedCandidateAllowed: () => true, guidedCategoryScopeAllows: () => true, guidedStageIsLocked: () => false },
     '@/services/wise-budget-diagnostics': {}, '@/services/wise-food-diagnostics': {}, '@/services/wise-proposal': {},
     '@/services/google-place-identity': { mergeGoogleIdentityResults: (places: any[]) => places, warmVisibleGooglePlaceIdentities: async () => [] },
   });

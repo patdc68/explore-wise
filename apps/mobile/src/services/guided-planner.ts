@@ -3,7 +3,7 @@ import { intentFields, validatePlanningIntent, type Occasion, type PlanningInten
 import { OCCASION_QUESTIONS, questionsForDraft } from '../../../../packages/planning/src/questions.ts';
 import { validate, type Result } from '../../../../packages/planning/src/validation.ts';
 
-export type PlannerSession = { draft: PlannerDraft; screen: QuestionId | 'review' | 'complete'; editing: boolean; preview: PlanningIntent | null };
+export type PlannerSession = { draft: PlannerDraft; screen: QuestionId | 'review' | 'generating' | 'complete'; editing: boolean; preview: PlanningIntent | null };
 export const createPlannerSession = (): PlannerSession => ({ draft: createPlannerDraft(), screen: 'occasion', editing: false, preview: null });
 
 export const PLANNER_PHASES = ['Basics', 'Budget & time', 'Preferences', 'Final touches', 'Review'] as const;
@@ -19,7 +19,7 @@ const PHASE_BY_QUESTION: Record<QuestionId, Exclude<PlannerPhase, 'Review'>> = {
 
 /** The native question engine stays dynamic; this is only its friendlier presentation progress. */
 export function plannerProgress(draft: PlannerDraft, screen: PlannerSession['screen']): PlannerProgress {
-  if (screen === 'review' || screen === 'complete') return { phase: 'Review', phaseIndex: PLANNER_PHASES.length, phaseCount: PLANNER_PHASES.length, completion: 1 };
+  if (screen === 'review' || screen === 'generating' || screen === 'complete') return { phase: 'Review', phaseIndex: PLANNER_PHASES.length, phaseCount: PLANNER_PHASES.length, completion: 1 };
   const questions = plannerQuestions(draft);
   const index = Math.max(0, questions.findIndex((question) => question.id === screen));
   const phase = PHASE_BY_QUESTION[screen];
@@ -70,7 +70,7 @@ export function editPlannerQuestion(session: PlannerSession, id: QuestionId): Pl
   return { ...session, screen: id, editing: true, draft: navigateDraft(session.draft, id), preview: null };
 }
 export function nextPlannerQuestion(session: PlannerSession): PlannerSession {
-  if (session.screen === 'review' || session.screen === 'complete' || !plannerScreenReady(session.draft, session.screen)) return session;
+  if (session.screen === 'review' || session.screen === 'generating' || session.screen === 'complete' || !plannerScreenReady(session.draft, session.screen as QuestionId)) return session;
   const questions = plannerQuestions(session.draft);
   if (session.editing && session.screen === 'occasion') {
     const dependent = questions.find((q) => ['party', 'children', 'child_age_bands'].includes(q.id) && !questionReady(session.draft, q.id));

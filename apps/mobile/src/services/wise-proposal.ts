@@ -1,4 +1,5 @@
 import type { AskWiseIntent } from './ask-wise.ts';
+import type { GuidedPlanProposal } from './guided-plan-generation';
 import { historyKeyForStops } from '../../../../packages/planning/src/dedupe.ts';
 import { buildFoodCandidatePool, isFoodStage, orderStageCandidates, stageRankingContextFromIntent } from './food-candidate-diversity.ts';
 import { buildStages, filterCandidatesForStage, remainingBudget, selectStop, stageActivityFocus, type ItineraryStage, type ItineraryState } from './itinerary.ts';
@@ -6,6 +7,7 @@ import type { PricedNearbyPlace } from './places.ts';
 import { logFoodPipeline } from './wise-food-diagnostics.ts';
 
 export type WiseProposal = Readonly<{ intent: AskWiseIntent; state: ItineraryState; missingStageIds: readonly string[]; historyKey: string; explicitFoodNoMatch: Exclude<AskWiseIntent['foodFocus'], null | undefined> | null; anchorPlaceId: string | null }>;
+export type PlanProposal = WiseProposal | GuidedPlanProposal;
 export type ProposalFetcher = (input: { coordinates: { latitude: number; longitude: number }; categoryCodes: string[]; budgetMinor: number | null; partySize: number }) => Promise<PricedNearbyPlace[]>;
 
 const excluded = (place: PricedNearbyPlace, terms: readonly string[]) => {

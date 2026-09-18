@@ -9,7 +9,7 @@ import { ClayCard, ClaySurface, PrimaryButton } from '@/components/ui/clay';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { selectedTotals, type ItineraryState } from '@/services/itinerary';
-import { formatPhp } from '@/services/money';
+import { formatMinorUnits, formatPhp } from '@/services/money';
 import type { PricedNearbyPlace } from '@/services/places';
 import { stageProgressOffset } from '@/services/stage-progress';
 import { CurrentStopActions, stopStatusPresentation } from '@/components/itinerary/itinerary-progress';
@@ -28,9 +28,10 @@ export function StageProgress({ state, stageIndex }: { state: ItineraryState; st
 
 export function BudgetSummaryCard({ state, compact = false, planned = false }: { state: ItineraryState; compact?: boolean; planned?: boolean }) {
   const theme = useTheme();
-  const totals = selectedTotals(state.stops);
+  const totals = selectedTotals(state.stops, state.currencyCode);
   const { minAmountMinor: selectedSpendMinMinor, maxAmountMinor: selectedSpendMaxMinor, uncertain: hasUnknown } = totals;
-  const knownSpend = totals.knownStopCount === 0 ? 'Not available yet' : selectedSpendMinMinor === selectedSpendMaxMinor ? formatPhp(selectedSpendMinMinor) : `${formatPhp(selectedSpendMinMinor)}–${formatPhp(selectedSpendMaxMinor)}`;
+  const formatMoney = (minor: number) => state.currencyCode ? formatMinorUnits(minor, state.currencyCode) : formatPhp(minor);
+  const knownSpend = totals.knownStopCount === 0 ? 'Not available yet' : selectedSpendMinMinor === selectedSpendMaxMinor ? formatMoney(selectedSpendMinMinor) : `${formatMoney(selectedSpendMinMinor)}–${formatMoney(selectedSpendMaxMinor)}`;
   const unavailableCopy = totals.knownStopCount === 0 ? 'No selected stops have reliable pricing yet.' : `${totals.unknownStopCount} ${totals.unknownStopCount === 1 ? 'stop has' : 'stops have'} price unavailable.`;
   if (planned) return <ClayCard testID="itinerary-planned-summary" style={styles.plannedSummary}>
     <View style={styles.plannedIdentity}>
@@ -51,7 +52,7 @@ export function BudgetSummaryCard({ state, compact = false, planned = false }: {
       </View>
       <View style={styles.plannedMetric}>
         <ThemedText style={Typography.metadata} themeColor="muted">Planned budget</ThemedText>
-        <ThemedText style={Typography.cardTitle}>{formatPhp(state.budgetMinor)}</ThemedText>
+        <ThemedText style={Typography.cardTitle}>{formatMoney(state.budgetMinor)}</ThemedText>
       </View>
     </View>
     {hasUnknown ? <ThemedText type="small" themeColor="textSecondary">{unavailableCopy} Budget is partially known.</ThemedText> : null}
@@ -59,11 +60,11 @@ export function BudgetSummaryCard({ state, compact = false, planned = false }: {
   if (compact) return <View style={[styles.planDetails, { borderTopColor: theme.border }]}>
     <ThemedText style={Typography.cardTitle} accessibilityRole="header">Plan details</ThemedText>
     <ThemedText type="small" themeColor="textSecondary">{state.partySize} {state.partySize === 1 ? 'person' : 'people'} · Starting from {state.start.label}</ThemedText>
-    <View style={styles.detailLine}><ThemedText type="small" themeColor="textSecondary">Planned budget</ThemedText><ThemedText style={Typography.label}>{formatPhp(state.budgetMinor)}</ThemedText></View>
+    <View style={styles.detailLine}><ThemedText type="small" themeColor="textSecondary">Planned budget</ThemedText><ThemedText style={Typography.label}>{formatMoney(state.budgetMinor)}</ThemedText></View>
     <View style={styles.detailLine}><ThemedText type="small" themeColor="textSecondary">{hasUnknown ? 'Known price estimates' : 'Selected price estimates'}</ThemedText><ThemedText style={Typography.label}>{knownSpend}</ThemedText></View>
     {hasUnknown ? <ThemedText type="small" themeColor="textSecondary">{unavailableCopy} Budget is partially known.</ThemedText> : null}
   </View>;
-  return <ClaySurface elevation="raised" style={[styles.budget, { backgroundColor: theme.accentSoft, borderColor: theme.accentStrong }]}><ThemedText type="smallBold" themeColor="textSecondary" style={styles.eyebrow}>YOUR BUDGET</ThemedText><View style={styles.budgetGrid}><BudgetValue label="Budget:" value={formatPhp(state.budgetMinor)} /><BudgetValue label="Selected:" value={state.stops.length ? hasUnknown ? 'Partially known' : knownSpend : 'Nothing yet'} /><BudgetValue label="Remaining:" value={hasUnknown ? 'Partially known' : selectedSpendMinMinor === selectedSpendMaxMinor ? formatPhp(Math.max(0, state.budgetMinor - selectedSpendMaxMinor)) : `${formatPhp(Math.max(0, state.budgetMinor - selectedSpendMaxMinor))}–${formatPhp(Math.max(0, state.budgetMinor - selectedSpendMinMinor))}`} /></View>{hasUnknown ? <View style={styles.budgetCopy}><ThemedText type="small" themeColor="textSecondary">Budget status: Partially known</ThemedText><ThemedText type="small" themeColor="textSecondary">Known spend: {knownSpend}</ThemedText><ThemedText type="small" themeColor="textSecondary">{unavailableCopy}</ThemedText></View> : null}</ClaySurface>;
+  return <ClaySurface elevation="raised" style={[styles.budget, { backgroundColor: theme.accentSoft, borderColor: theme.accentStrong }]}><ThemedText type="smallBold" themeColor="textSecondary" style={styles.eyebrow}>YOUR BUDGET</ThemedText><View style={styles.budgetGrid}><BudgetValue label="Budget:" value={formatMoney(state.budgetMinor)} /><BudgetValue label="Selected:" value={state.stops.length ? hasUnknown ? 'Partially known' : knownSpend : 'Nothing yet'} /><BudgetValue label="Remaining:" value={hasUnknown ? 'Partially known' : selectedSpendMinMinor === selectedSpendMaxMinor ? formatMoney(Math.max(0, state.budgetMinor - selectedSpendMaxMinor)) : `${formatMoney(Math.max(0, state.budgetMinor - selectedSpendMaxMinor))}–${formatMoney(Math.max(0, state.budgetMinor - selectedSpendMinMinor))}`} /></View>{hasUnknown ? <View style={styles.budgetCopy}><ThemedText type="small" themeColor="textSecondary">Budget status: Partially known</ThemedText><ThemedText type="small" themeColor="textSecondary">Known spend: {knownSpend}</ThemedText><ThemedText type="small" themeColor="textSecondary">{unavailableCopy}</ThemedText></View> : null}</ClaySurface>;
 }
 
 function BudgetValue({ label, value }: { label: string; value: string }) { return <View style={styles.budgetValue}><ThemedText type="small" themeColor="textSecondary">{label}</ThemedText><ThemedText style={Typography.cardTitle}>{value}</ThemedText></View>; }
@@ -89,23 +90,23 @@ export function CustomizeCandidateCard({ place, distanceLabel, highlighted, sele
   </ClayCard>;
 }
 
-export function ItineraryStopCard({ place, number, distanceLabel, onNavigate, onRemove, status, onComplete, onSkip, connectToNext = false, planned = false }: { place: PricedNearbyPlace; number: number; distanceLabel?: string | null; onNavigate?: () => void; onRemove?: () => void; status?: StopStatus; onComplete?: () => void; onSkip?: () => void; connectToNext?: boolean; planned?: boolean }) {
+export function ItineraryStopCard({ place, currencyCode, number, distanceLabel, onNavigate, onRemove, status, onComplete, onSkip, connectToNext = false, planned = false }: { place: PricedNearbyPlace; currencyCode?: string; number: number; distanceLabel?: string | null; onNavigate?: () => void; onRemove?: () => void; status?: StopStatus; onComplete?: () => void; onSkip?: () => void; connectToNext?: boolean; planned?: boolean }) {
   const theme = useTheme();
-  if (planned && status === 'upcoming') return <PlannedStop place={place} number={number} distanceLabel={distanceLabel} connectToNext={connectToNext} />;
-  if (status) return <ExecutionStop place={place} number={number} distanceLabel={distanceLabel} status={status} onNavigate={onNavigate} onComplete={onComplete} onSkip={onSkip} connectToNext={connectToNext} />;
+  if (planned && status === 'upcoming') return <PlannedStop place={place} currencyCode={currencyCode} number={number} distanceLabel={distanceLabel} connectToNext={connectToNext} />;
+  if (status) return <ExecutionStop place={place} currencyCode={currencyCode} number={number} distanceLabel={distanceLabel} status={status} onNavigate={onNavigate} onComplete={onComplete} onSkip={onSkip} connectToNext={connectToNext} />;
   return <ClaySurface style={styles.stop}>
     <View style={styles.stopHeader}>
       <View style={[styles.stopNumber, { backgroundColor: theme.accent }]}><ThemedText style={[Typography.badge, { color: theme.accentText }]}>{number}</ThemedText></View>
       <View style={styles.stopCopy}><ThemedText style={Typography.cardTitle}>{place.name}</ThemedText><ThemedText type="small" themeColor="textSecondary">{place.category_name}</ThemedText>{distanceLabel ? <ThemedText type="small" themeColor="textSecondary">{distanceLabel}</ThemedText> : null}</View>
     </View>
-    <PriceSummary place={place} />
+    <PriceSummary place={place} currencyCode={currencyCode} />
     {onRemove ? <View style={styles.stopActions}><Pressable accessibilityRole="button" accessibilityLabel={`Remove ${place.name}`} onPress={onRemove} style={styles.remove}><Ionicons name="trash-outline" size={18} color={theme.error} /></Pressable></View> : null}
   </ClaySurface>;
 }
 
 /** Pre-start sequence keeps factual prices beside the identity and the index on a separate rail. */
-function PlannedStop({ place, number, distanceLabel, connectToNext }: {
-  place: PricedNearbyPlace; number: number; distanceLabel?: string | null; connectToNext: boolean;
+function PlannedStop({ place, currencyCode, number, distanceLabel, connectToNext }: {
+  place: PricedNearbyPlace; currencyCode?: string; number: number; distanceLabel?: string | null; connectToNext: boolean;
 }) {
   const theme = useTheme();
   return <View testID="itinerary-stop-upcoming" style={styles.plannedRow}>
@@ -124,7 +125,7 @@ function PlannedStop({ place, number, distanceLabel, connectToNext }: {
             <ThemedText accessibilityRole="header" accessibilityLabel={`Stop ${number}, ${place.name}, upcoming`} style={Typography.cardTitle}>{place.name}</ThemedText>
             {place.category_name ? <ThemedText style={Typography.metadata} themeColor="muted">{place.category_name}</ThemedText> : null}
             {place.has_price && place.pricing_status !== 'free' ? <ThemedText style={Typography.caption} themeColor="muted">Group estimate</ThemedText> : null}
-            <PriceSummary place={place} compact />
+            <PriceSummary place={place} currencyCode={currencyCode} compact />
           </View>
         </View>
       </View>
@@ -133,8 +134,8 @@ function PlannedStop({ place, number, distanceLabel, connectToNext }: {
 }
 
 /** Presentation of the existing execution status; no local progress or action state. */
-function ExecutionStop({ place, number, distanceLabel, status, onNavigate, onComplete, onSkip, connectToNext }: {
-  place: PricedNearbyPlace; number: number; distanceLabel?: string | null; status: StopStatus;
+function ExecutionStop({ place, currencyCode, number, distanceLabel, status, onNavigate, onComplete, onSkip, connectToNext }: {
+  place: PricedNearbyPlace; currencyCode?: string; number: number; distanceLabel?: string | null; status: StopStatus;
   onNavigate?: () => void; onComplete?: () => void; onSkip?: () => void; connectToNext: boolean;
 }) {
   const theme = useTheme();
@@ -151,7 +152,7 @@ function ExecutionStop({ place, number, distanceLabel, status, onNavigate, onCom
     </View>
     {!finished && place.category_name ? <ThemedText type="small" themeColor="textSecondary">{place.category_name}</ThemedText> : null}
     {distanceLabel ? <ThemedText style={Typography.metadata} themeColor="textSecondary">{distanceLabel}</ThemedText> : null}
-    {!finished ? <PriceSummary place={place} compact /> : null}
+    {!finished ? <PriceSummary place={place} currencyCode={currencyCode} compact /> : null}
   </View>;
   if (current) return <ClayCard variant="hero" padding="default" testID="itinerary-current-stop" style={[styles.currentStop, { borderColor: theme.accent }]}>
     <View style={[styles.currentBadge, { backgroundColor: theme.accent }]}>

@@ -2,12 +2,12 @@ import { createContext, useCallback, useContext, useMemo, useState, type PropsWi
 
 import type { ItineraryStage, ItineraryState } from '@/services/itinerary';
 import type { PricedNearbyPlace } from '@/services/places';
-import type { WiseProposal } from '@/services/wise-proposal';
+import type { PlanProposal } from '@/services/wise-proposal';
 import type { FoodFocus } from '@/services/ask-wise-normalization';
 import type { StageDistanceOrigin } from '@/services/planning-distance';
 
 export type PlanningAlternativesSession = Readonly<{
-  proposal: WiseProposal;
+  proposal: PlanProposal;
   state: ItineraryState;
   stage: ItineraryStage;
   stageIndex: number;

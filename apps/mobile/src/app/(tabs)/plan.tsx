@@ -36,25 +36,79 @@ import { sequentialStopDistances, stageDistanceLabel, stageDistanceOrigin, type 
 import { canCommitGuidedSelection, guidedSelectionTransition } from '@/services/guided-selection';
 import { logWiseBudget } from '@/services/wise-budget-diagnostics';
 import { logFoodPipeline } from '@/services/wise-food-diagnostics';
-import { buildWiseProposal, type WiseProposal } from '@/services/wise-proposal';
+import { adaptGuidedPlanProposal, guidedPlanGeneration, type GuidedPlanGenerationResult, type GuidedPlanProposal } from '@/services/guided-plan-generation';
+import { guidedCandidateAllowed, guidedCategoryScopeAllows, guidedStageIsLocked, validateGuidedCandidate, validateGuidedItinerary } from '@/services/guided-plan-constraints';
+import { buildWiseProposal, type PlanProposal } from '@/services/wise-proposal';
 import { resolveNamedCatalogPlace, type CatalogSearchCandidate } from '@/services/catalog-search';
 import { mergeGoogleIdentityResults, warmVisibleGooglePlaceIdentities, type GoogleIdentityResult } from '@/services/google-place-identity';
+import type { GeneratePlanRequestV1 } from '../../../../../packages/planning/src/contracts.ts';
 
 type Screen = 'initial' | 'proposal' | 'guided' | 'review' | 'finalized' | 'add-category';
+
+function isGuidedProposal(proposal: PlanProposal | null): proposal is GuidedPlanProposal {
+  return Boolean(proposal && 'source' in proposal && proposal.source === 'guided');
+}
+
+function rankingIntentForProposal(proposal: PlanProposal | null): Parameters<typeof stageRankingContextFromIntent>[0] {
+  if (!proposal) return null;
+  if (!isGuidedProposal(proposal)) return proposal.intent;
+  const foodValues = proposal.intent.food.state === 'selected' ? proposal.intent.food.values : [];
+  const foodFocus: AskWiseIntent['foodFocus'] = foodValues.find((value) => value === 'restaurant' || value === 'cafe' || value === 'dessert' || value === 'fast_food') ?? null;
+  const outingContext = proposal.intent.occasion === 'date' ? 'date' : proposal.intent.occasion === 'friends' ? 'friends_group' : proposal.intent.occasion === 'family' ? 'family' : 'solo';
+  return {
+    explicitQuickService: foodValues.includes('fast_food'),
+    explicitNightlife: false,
+    foodFocus,
+    outingContext,
+    budgetMinor: proposal.state.budgetMinor,
+    partySize: proposal.intent.party.size,
+    currencyCode: proposal.intent.budget.currencyCode,
+  };
+}
+
+function stageRankingContextFromProposal(proposal: PlanProposal | null, activityFocus: Parameters<typeof stageRankingContextFromIntent>[1]) {
+  return stageRankingContextFromIntent(rankingIntentForProposal(proposal), activityFocus);
+}
 
 export default function PlanScreen() {
   const { active, loadFailed, store: executionStore } = useItineraryExecution();
   const location = useCurrentLocation(); const theme = useTheme(); const router = useRouter();
-  const { pendingWiseRequest, consumePendingWiseRequest } = usePlanningHandoff(); const { openAlternatives, clearAlternatives } = usePlanningAlternatives();
-  const [prompt, setPrompt] = useState(''); const [activeRequest, setActiveRequest] = useState<string | null>(null); const [screen, setScreen] = useState<Screen>(active ? 'finalized' : 'initial'); const [proposal, setProposal] = useState<WiseProposal | null>(null); const [state, setState] = useState<ItineraryState | null>(active?.itinerary ?? null); const [stageIndex, setStageIndex] = useState(0); const [candidatePool, setCandidatePool] = useState<PricedNearbyPlace[]>([]); const [candidateStageKey, setCandidateStageKey] = useState<string | null>(null); const [highlightedId, setHighlightedId] = useState<string | null>(null); const [selectionTransition, setSelectionTransition] = useState<Readonly<{ stageId: string; placeName: string; returnToReview: boolean }> | null>(null); const [candidateRefreshKey, setCandidateRefreshKey] = useState(0); const [loading, setLoading] = useState(false); const [loadingLabel, setLoadingLabel] = useState(''); const [locationSearchVisible, setLocationSearchVisible] = useState(false); const [error, setError] = useState<string | null>(null); const [history, setHistory] = useState<string[]>([]); const [notice, setNotice] = useState<string | null>(null); const [addPlaceQuery, setAddPlaceQuery] = useState(''); const [addPlaceResults, setAddPlaceResults] = useState<CatalogSearchCandidate[]>([]); const [addPlaceSearching, setAddPlaceSearching] = useState(false); const [addPlaceSearchError, setAddPlaceSearchError] = useState<string | null>(null);
+  const { pendingWiseRequest, consumePendingWiseRequest, guidedPlanProposal, consumeGuidedPlanProposal } = usePlanningHandoff(); const { openAlternatives, clearAlternatives } = usePlanningAlternatives();
+  const [prompt, setPrompt] = useState(''); const [activeRequest, setActiveRequest] = useState<string | null>(null); const [screen, setScreen] = useState<Screen>(active ? 'finalized' : 'initial'); const [proposal, setProposal] = useState<PlanProposal | null>(null); const [state, setState] = useState<ItineraryState | null>(active?.itinerary ?? null); const [stageIndex, setStageIndex] = useState(0); const [candidatePool, setCandidatePool] = useState<PricedNearbyPlace[]>([]); const [candidateStageKey, setCandidateStageKey] = useState<string | null>(null); const [highlightedId, setHighlightedId] = useState<string | null>(null); const [selectionTransition, setSelectionTransition] = useState<Readonly<{ stageId: string; placeName: string; returnToReview: boolean }> | null>(null); const [candidateRefreshKey, setCandidateRefreshKey] = useState(0); const [loading, setLoading] = useState(false); const [loadingLabel, setLoadingLabel] = useState(''); const [locationSearchVisible, setLocationSearchVisible] = useState(false); const [error, setError] = useState<string | null>(null); const [errorRetryable, setErrorRetryable] = useState(false); const [history, setHistory] = useState<string[]>([]); const [notice, setNotice] = useState<string | null>(null); const [selectionNotice, setSelectionNotice] = useState<string | null>(null); const [addPlaceQuery, setAddPlaceQuery] = useState(''); const [addPlaceResults, setAddPlaceResults] = useState<CatalogSearchCandidate[]>([]); const [addPlaceSearching, setAddPlaceSearching] = useState(false); const [addPlaceSearchError, setAddPlaceSearchError] = useState<string | null>(null);
+  const askIntent = proposal && !isGuidedProposal(proposal) ? proposal.intent : null;
+  const guidedProposal = isGuidedProposal(proposal) ? proposal : null;
   useEffect(() => { if (active && !state) { setState(active.itinerary); setScreen('finalized'); } }, [active, state]);
   const autoSubmittedRequestIds = useRef(new Set<string>());
   const addingStopRef = useRef(false);
   const selectionTransitionRef = useRef(false);
+  const guidedGenerationController = useRef<AbortController | null>(null);
   const currentStage = state?.stages[stageIndex];
   const origin = useMemo(() => state ? stageOrigin(state, stageIndex) : null, [stageIndex, state]);
   const currentCandidateKey = currentStage && origin && state ? `${currentStage.id}:${stageOriginKey(state, stageIndex)}:${origin.latitude}:${origin.longitude}:${selectedPlaceExclusionKey(state, currentStage.id)}` : null;
+  useEffect(() => {
+    if (!guidedPlanProposal) return;
+    const next = consumeGuidedPlanProposal();
+    if (!next) return;
+    const apply = () => {
+      setProposal(next);
+      setState(next.state);
+      setHistory([]);
+      setActiveRequest(null);
+      setError(null); setErrorRetryable(false);
+      setNotice(null);
+      setLoading(false); setLoadingLabel('');
+      setScreen('proposal');
+    };
+    if (!active) { apply(); return; }
+    Alert.alert(START_OVER_TITLE, 'Starting a new plan will remove this finalized itinerary and its progress.', startOverConfirmation(() => {
+      void executionStore.clear(active.execution.itineraryId).then((cleared) => {
+        if (cleared) apply();
+        else setError('The current itinerary could not be cleared. Your guided proposal is still available after you try again.');
+      });
+    }));
+  }, [active, consumeGuidedPlanProposal, executionStore, guidedPlanProposal]);
   useEffect(() => { if ((screen === 'review' || screen === 'finalized') && state) logWiseBudget('review', state.budgetMinor); }, [screen, state]);
+  useEffect(() => () => { guidedGenerationController.current?.abort(); guidedGenerationController.current = null; }, []);
   useEffect(() => { if (screen !== 'add-category') addingStopRef.current = false; }, [screen]);
   useEffect(() => { if (screen === 'initial') { selectionTransitionRef.current = false; setSelectionTransition(null); } }, [screen]);
   useEffect(() => {
@@ -70,7 +124,7 @@ export default function PlanScreen() {
   }, [selectionTransition, state]);
   const resolveExplicitLocation = async (query: string) => { const result = (await Location.geocodeAsync(query))[0]; return result && Number.isFinite(result.latitude) && Number.isFinite(result.longitude) ? { coordinates: { latitude: result.latitude, longitude: result.longitude }, label: query, source: 'location-search' as const } : null; };
   const fetchProposal = useCallback(async (intent: AskWiseIntent, previous: readonly string[], requestText: string) => {
-    setLoading(true); setLoadingLabel('Resolving your location…'); setError(null); setNotice(null);
+    setLoading(true); setLoadingLabel('Resolving your location…'); setError(null); setErrorRetryable(false); setNotice(null);
     const resolved = await resolvePlanLocation({ explicitLocation: intent.location, currentLocation: location.selection, requestCurrentLocation: location.requestCurrentLocation, resolveExplicitLocation }).catch(() => ({ selection: null, reason: 'unavailable' as const }));
     if (!resolved.selection) { setLoading(false); setLoadingLabel(''); setError(resolved.reason === 'explicit-unavailable' ? 'We couldn’t find ' + intent.location + '. Choose another location to continue.' : 'Wise needs your location to build this plan.'); return; }
     setLoadingLabel('Building your plan…');
@@ -78,7 +132,7 @@ export default function PlanScreen() {
   }, [location.requestCurrentLocation, location.selection]);
   const begin = useCallback(async (submittedPrompt = prompt) => {
     const exactPrompt = submittedPrompt.trim(); if (loading || loadFailed || !exactPrompt) return;
-    setHistory([]); setProposal(null); setLoading(true); setLoadingLabel('Understanding your plan…'); setError(null);
+    setHistory([]); setProposal(null); setLoading(true); setLoadingLabel('Understanding your plan…'); setError(null); setErrorRetryable(false);
     const intent = await parseAskWise(exactPrompt).catch(() => null);
     if (!intent) { setLoading(false); setLoadingLabel(''); setError('Ask Wise isn’t available right now. You can still explore places manually.'); return; }
     setActiveRequest(exactPrompt); await fetchProposal(intent, [], exactPrompt);
@@ -96,7 +150,65 @@ export default function PlanScreen() {
     if (active) Alert.alert(START_OVER_TITLE, 'Starting a new plan will remove this finalized itinerary and its progress.', startOverConfirmation(() => { void replace(); }));
     else { setPrompt(request.prompt); void begin(request.prompt); }
   }, [active, begin, clearAlternatives, consumePendingWiseRequest, executionStore, loadFailed, pendingWiseRequest]);
-  const tryAnother = async () => { if (!proposal) return; const nextHistory = [...history, proposal.historyKey]; setHistory(nextHistory); await fetchProposal(proposal.intent, nextHistory, activeRequest ?? prompt); };
+  const runGuidedGeneration = async (request: GeneratePlanRequestV1, nextHistory: readonly string[]) => {
+    if (guidedGenerationController.current) return;
+    const controller = new AbortController();
+    guidedGenerationController.current = controller;
+    setLoading(true); setLoadingLabel('Building your outing…'); setError(null); setErrorRetryable(false); setNotice(null);
+    let result: GuidedPlanGenerationResult;
+    try {
+      result = await guidedPlanGeneration.generate(request, controller.signal);
+    } catch {
+      if (guidedGenerationController.current !== controller) return;
+      guidedGenerationController.current = null;
+      setError('Wise is temporarily unavailable. Your guided choices are still here. Try again.');
+      setErrorRetryable(true); setLoading(false); setLoadingLabel('');
+      return;
+    }
+    if (guidedGenerationController.current !== controller) return;
+    guidedGenerationController.current = null;
+    if (result.kind === 'transport_error') {
+      if (result.error.kind !== 'aborted') { setError(result.error.retryable ? 'Wise is temporarily unavailable. Your guided choices are still here. Try again.' : 'Wise could not build this outing. Review your guided choices and try again.'); setErrorRetryable(result.error.retryable); }
+      setLoading(false); setLoadingLabel('');
+      return;
+    }
+    if (result.response.outcome === 'proposal' || result.response.outcome === 'partial_plan') {
+      const next = adaptGuidedPlanProposal(result.response, request);
+      setProposal(next); setState(next.state); setHistory([...nextHistory]); setErrorRetryable(false); setScreen('proposal');
+      setLoading(false); setLoadingLabel('');
+      return;
+    }
+    const response = result.response;
+    const message = response.outcome === 'clarification_needed'
+      ? (response.issues[0]?.code === 'strict_budget_impossible' ? 'This outing needs a budget adjustment before Wise can build it.' : 'Review your guided choices before trying again.')
+      : response.outcome === 'no_plan'
+        ? 'We couldn’t build another outing with these choices. Your current proposal is still here.'
+        : response.outcome === 'error' && response.error.retryable
+          ? 'Wise is temporarily unavailable. Your guided choices are still here. Try again.'
+          : 'Wise could not build this outing. Review your guided choices and try again.';
+    setError(message); setErrorRetryable(response.outcome === 'no_plan' || (response.outcome === 'error' && response.error.retryable)); setLoading(false); setLoadingLabel('');
+  };
+  const retryGuided = async () => {
+    if (!isGuidedProposal(proposal)) return;
+    await runGuidedGeneration(proposal.request, history);
+  };
+  const tryAnother = async () => {
+    if (!proposal) return;
+    if (!isGuidedProposal(proposal)) {
+      const nextHistory = [...history, proposal.historyKey]; setHistory(nextHistory); await fetchProposal(proposal.intent, nextHistory, activeRequest ?? prompt);
+      return;
+    }
+    const nextHistory = [...history, proposal.historyKey];
+    const ordinal = Math.min(4, (proposal.request.attempt?.ordinal ?? 0) + 1);
+    const request: GeneratePlanRequestV1 = {
+      ...proposal.request,
+      attempt: {
+        ordinal,
+        excludedCombinations: nextHistory.flatMap((key) => key.split('|')).slice(-6),
+      },
+    };
+    await runGuidedGeneration(request, nextHistory);
+  };
   useEffect(() => {
     if (screen !== 'add-category' || !state) return;
     const query = addPlaceQuery.trim();
@@ -112,27 +224,28 @@ export default function PlanScreen() {
         budgetMinor: remainingBudget(state).conservativeMinor,
         partySize: state.partySize,
         resultLimit: 12,
-      }).then((results) => { if (active) setAddPlaceResults(results); })
+      }).then((results) => { if (active) setAddPlaceResults(guidedProposal ? results.filter((place) => guidedCandidateAllowed({ intent: guidedProposal.intent, state, origin: nextStageOrigin(state) }, place as PricedNearbyPlace)) : results); })
         .catch(() => { if (active) { setAddPlaceResults([]); setAddPlaceSearchError('We couldn’t search the catalog right now. Try again.'); } })
         .finally(() => { if (active) setAddPlaceSearching(false); });
     }, 300);
     return () => { active = false; clearTimeout(timeout); };
-  }, [addPlaceQuery, screen, state]);
+  }, [addPlaceQuery, guidedProposal, screen, state]);
   useEffect(() => {
     if (screen !== 'guided' || !state || !currentStage || !origin) return;
-    let active = true; setLoading(true); setError(null); setCandidateStageKey(null); setCandidatePool([]); setHighlightedId(null); const remaining = remainingBudget(state); const budgetMinor = proposal?.intent.budgetMinor === null ? null : remaining.conservativeMinor ?? state.budgetMinor;
-    const rankingContext = stageRankingContextFromIntent(proposal?.intent, stageActivityFocus(currentStage));
+    // Ask Wise retains its existing budget gate: proposal?.intent.budgetMinor === null ? null : remaining.conservativeMinor ?? state.budgetMinor
+    let active = true; setLoading(true); setError(null); setSelectionNotice(null); setCandidateStageKey(null); setCandidatePool([]); setHighlightedId(null); const remaining = remainingBudget(state); const guided = Boolean(guidedProposal); const rankingContext = stageRankingContextFromProposal(proposal, stageActivityFocus(currentStage)); const budgetMinor = guided ? state.budgetMinor : askIntent?.budgetMinor === null ? null : remaining.conservativeMinor ?? state.budgetMinor;
+    const radiusMeters = guidedProposal?.intent.location.geography.kind === 'radius' ? guidedProposal.intent.location.geography.radiusMeters : 5000;
     const request = isFoodStage(currentStage.categoryCodes)
-      ? fetchPlanningNearbyPlaces({ coordinates: origin, radiusMeters: 5000, categoryCodes: [...currentStage.categoryCodes], resultLimit: STAGE_CANDIDATE_POOL_LIMIT, budgetMinor, partySize: state.partySize, foodFocus: proposal?.intent.foodFocus })
-      : fetchPricedNearbyPlaces({ coordinates: origin, radiusMeters: 5000, categoryCodes: [...currentStage.categoryCodes], resultLimit: STAGE_CANDIDATE_POOL_LIMIT, budgetMinor, partySize: state.partySize });
+      ? fetchPlanningNearbyPlaces({ coordinates: origin, radiusMeters, categoryCodes: [...currentStage.categoryCodes], resultLimit: STAGE_CANDIDATE_POOL_LIMIT, budgetMinor, partySize: state.partySize, foodFocus: guided ? rankingContext.foodFocus : askIntent?.foodFocus })
+      : fetchPricedNearbyPlaces({ coordinates: origin, radiusMeters, categoryCodes: [...currentStage.categoryCodes], resultLimit: STAGE_CANDIDATE_POOL_LIMIT, budgetMinor, partySize: state.partySize });
     void request.then((result) => {
-      if (!active) return; const eligible = filterCandidatesForStage(state, currentStage.id, result); const ranked = orderStageCandidates(currentStage.categoryCodes, eligible, rankingContext); if (isFoodStage(currentStage.categoryCodes)) logFoodPipeline(currentStage.id, result, eligible, rankingContext); setCandidatePool(ranked); setCandidateStageKey(currentCandidateKey);
+      if (!active) return; const compatible = guidedProposal ? result.filter((place) => guidedCandidateAllowed({ intent: guidedProposal.intent, state, stage: currentStage, origin }, place)) : result; const eligible = filterCandidatesForStage(state, currentStage.id, compatible); const ranked = orderStageCandidates(currentStage.categoryCodes, eligible, rankingContext); if (isFoodStage(currentStage.categoryCodes)) logFoodPipeline(currentStage.id, result, eligible, rankingContext); setCandidatePool(ranked); setCandidateStageKey(currentCandidateKey);
       const selected = state.stops.find((stop) => stop.stageId === currentStage.id)?.place.place_id; setHighlightedId(selected ?? ranked[0]?.place_id ?? null);
     }).catch(() => active && setError('We couldn’t load suggestions right now. Try again in a moment.')).finally(() => active && setLoading(false));
     return () => { active = false; };
   // A current-stage selection changes the next stage's origin, not this request.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candidateRefreshKey, currentCandidateKey, currentStage, proposal?.intent.activityFocus, proposal?.intent.budgetMinor, proposal?.intent.explicitQuickService, proposal?.intent.foodFocus, proposal?.intent.outingContext, screen, state?.partySize]);
+  }, [candidateRefreshKey, currentCandidateKey, currentStage, askIntent?.activityFocus, askIntent?.budgetMinor, askIntent?.explicitQuickService, askIntent?.foodFocus, askIntent?.outingContext, proposal, screen, state?.partySize]);
   const applyGoogleIdentityResults = useCallback((results: readonly GoogleIdentityResult[]) => {
     const mergeState = (current: ItineraryState | null): ItineraryState | null => current ? {
       ...current,
@@ -146,32 +259,43 @@ export default function PlanScreen() {
     if (screen === 'proposal') return proposal?.state.stops.map((stop) => stop.place) ?? [];
     if (screen !== 'guided' || !state || !currentStage) return [];
     const selectedId = state.stops.find((stop) => stop.stageId === currentStage.id)?.place.place_id ?? null;
-    const rankingContext = stageRankingContextFromIntent(proposal?.intent, stageActivityFocus(currentStage));
+    const rankingContext = stageRankingContextFromProposal(proposal, stageActivityFocus(currentStage));
     return shortlistWithSelectedCandidate(currentStage.categoryCodes, candidatePool, selectedId, CUSTOMIZE_CANDIDATE_LIMIT, rankingContext);
   }, [candidatePool, currentStage, proposal, screen, state]);
   useEffect(() => {
     void warmVisibleGooglePlaceIdentities(visibleIdentityCandidates, applyGoogleIdentityResults);
   }, [applyGoogleIdentityResults, visibleIdentityCandidates]);
-  const updateStop = (place: PricedNearbyPlace, returnAddedStopToReview = false) => {
-    if (!currentStage || !state || !isPlaceAvailableForStage(state, currentStage.id, place.place_id) || !canCommitGuidedSelection(selectionTransitionRef.current)) return;
+  const updateStop = (place: PricedNearbyPlace, returnAddedStopToReview = false): boolean => {
+    if (!currentStage || !state || !isPlaceAvailableForStage(state, currentStage.id, place.place_id) || (guidedProposal && guidedStageIsLocked(guidedProposal.intent, currentStage.id, state, guidedProposal.anchorInclusions)) || !canCommitGuidedSelection(selectionTransitionRef.current)) return false;
+    if (guidedProposal) {
+      const validation = validateGuidedCandidate({ intent: guidedProposal.intent, state, stage: currentStage, origin: origin ?? undefined }, place);
+      if (!validation.valid) {
+        setSelectionNotice(validation.message);
+        return false;
+      }
+    }
+    setSelectionNotice(null);
     selectionTransitionRef.current = true;
     setState((current) => current ? selectStop(current, currentStage.id, place) : current);
     setCandidatePool((current) => current.some((item) => item.place_id === place.place_id) ? current : [place, ...current]); setHighlightedId(place.place_id);
     setSelectionTransition({ stageId: currentStage.id, placeName: place.name, returnToReview: returnAddedStopToReview && currentStage.source === 'user_added' });
+    return true;
   };
-  const openStage = (stageId: string) => { if (!state) return; const index = state.stages.findIndex((stage) => stage.id === stageId); if (index < 0) return; setStageIndex(index); setCandidatePool([]); setHighlightedId(null); setCandidateRefreshKey((key) => key + 1); setScreen('guided'); };
+  const openStage = (stageId: string) => { if (!state) return; if (guidedProposal && guidedStageIsLocked(guidedProposal.intent, stageId, state, guidedProposal.anchorInclusions)) { setNotice('Must-visit places stay fixed in a Guided Planner outing.'); return; } const index = state.stages.findIndex((stage) => stage.id === stageId); if (index < 0) return; setStageIndex(index); setCandidatePool([]); setHighlightedId(null); setCandidateRefreshKey((key) => key + 1); setScreen('guided'); };
   const removeAddedStage = (stageId: string) => { const removedIndex = state?.stages.findIndex((stage) => stage.id === stageId) ?? -1; const remainingCount = Math.max(0, (state?.stages.length ?? 0) - 1); setState((current) => current ? removeUserStage(current, stageId) : current); if (removedIndex >= 0) setStageIndex((index) => stageIndexAfterRemoval(index, removedIndex, remainingCount)); setCandidatePool([]); setCandidateStageKey(null); setHighlightedId(null); setCandidateRefreshKey((key) => key + 1); if (screen !== 'guided') setScreen('review'); };
-  const chooseAddedCategory = (categoryId: AddStopCategoryId) => { if (!state || state.stages.length >= MAX_ITINERARY_STOPS || addingStopRef.current) return; addingStopRef.current = true; const nextIndex = state.stages.length; setState((current) => current ? addUserStage(current, categoryId) : current); setStageIndex(nextIndex); setCandidatePool([]); setCandidateStageKey(null); setHighlightedId(null); setCandidateRefreshKey((key) => key + 1); setScreen('guided'); };
+  const chooseAddedCategory = (categoryId: AddStopCategoryId) => { if (!state || state.stages.length >= MAX_ITINERARY_STOPS || addingStopRef.current) return; const category = ADD_STOP_CATEGORIES.find((item) => item.id === categoryId); if (guidedProposal && category && !guidedCategoryScopeAllows(guidedProposal.intent, category.categoryCodes)) { setNotice('This category is outside the Guided Planner choices.'); return; } addingStopRef.current = true; const nextIndex = state.stages.length; setState((current) => current ? addUserStage(current, categoryId) : current); setStageIndex(nextIndex); setCandidatePool([]); setCandidateStageKey(null); setHighlightedId(null); setCandidateRefreshKey((key) => key + 1); setScreen('guided'); };
   const addSearchedPlace = (place: CatalogSearchCandidate) => {
+    if (!state) return;
     if (state?.stops.some((stop) => stop.place.place_id === place.place_id)) { setAddPlaceSearchError(`${place.name} is already in this itinerary.`); return; }
+    if (guidedProposal && !guidedCandidateAllowed({ intent: guidedProposal.intent, state, origin: nextStageOrigin(state) }, place as PricedNearbyPlace)) { setAddPlaceSearchError('This place does not fit the Guided Planner choices.'); return; }
     setState((current) => current ? addCatalogPlace(current, place) : current);
     setNotice(`${place.name} added from the ExploreWise catalog.`);
     setAddPlaceQuery(''); setAddPlaceResults([]); setAddPlaceSearchError(null); setScreen('review');
   };
-  const clearPlan = () => Alert.alert(START_OVER_TITLE, active ? 'This will remove your itinerary and all completed or skipped stop progress.' : START_OVER_MESSAGE, startOverConfirmation(() => { void (async () => { if (active && !await executionStore.clear(active.execution.itineraryId)) return; const cleared = emptyPlanningSession(); clearAlternatives(); setProposal(null); setState(null); setHistory(cleared.history); setCandidatePool([]); setHighlightedId(null); setStageIndex(0); setNotice(null); setError(null); setActiveRequest(null); setPrompt(''); setScreen(cleared.phase); })(); }));
+  const clearPlan = () => Alert.alert(START_OVER_TITLE, active ? 'This will remove your itinerary and all completed or skipped stop progress.' : START_OVER_MESSAGE, startOverConfirmation(() => { guidedGenerationController.current?.abort(); guidedGenerationController.current = null; setLoading(false); setLoadingLabel(''); void (async () => { if (active && !await executionStore.clear(active.execution.itineraryId)) return; const cleared = emptyPlanningSession(); clearAlternatives(); setProposal(null); setState(null); setHistory(cleared.history); setCandidatePool([]); setHighlightedId(null); setStageIndex(0); setNotice(null); setError(null); setErrorRetryable(false); setActiveRequest(null); setPrompt(''); setScreen(cleared.phase); })(); }));
   const locationError = error === 'Wise needs your location to build this plan.' || error?.startsWith('We couldn’t find');
   if (screen === 'initial') return <Shell theme={theme}><Heading eyebrow="PLAN AN OUTING" title="Make the pieces work." subtitle="Wise understands your request; ExploreWise selects real places." /><AskWiseCard prompt={prompt} onChangePrompt={setPrompt} onSubmit={() => void begin()} isLoading={loading} />{loading ? <LoadingCard label={loadingLabel} /> : null}{error ? locationError ? <><StateCard title="Wise needs your location to build this plan." message={error} actionLabel="Use my location" onAction={() => void begin()} /><SecondaryButton label="Choose location" onPress={() => setLocationSearchVisible(true)} /></> : <StateCard title="Ask Wise is unavailable" message={error} actionLabel="Try again" onAction={() => void begin()} /> : null}<ClaySurface elevation="subtle" style={styles.manual}><ThemedText style={Typography.cardTitle}>Prefer to browse?</ThemedText><ThemedText type="small" themeColor="textSecondary">Explore places manually anytime — planning never blocks discovery.</ThemedText></ClaySurface><LocationSearchSheet visible={locationSearchVisible} onClose={() => setLocationSearchVisible(false)} onUseCurrentLocation={() => { setLocationSearchVisible(false); void begin(); }} /></Shell>;
-  if (screen === 'proposal' && proposal) return <Shell theme={theme}><Heading eyebrow="YOUR PROPOSAL" title="Your outing, taking shape." subtitle="A grounded sequence of real ExploreWise places, ready to shape." />{loading ? <LoadingCard label={loadingLabel} /> : <WiseProposalCard proposal={proposal} requestText={activeRequest} busy={loading} onUse={() => { logWiseBudget('itinerary', proposal.state.budgetMinor); setState(proposal.state); setScreen('review'); }} onCustomize={() => { setState(proposal.state); setStageIndex(0); setCandidateRefreshKey((key) => key + 1); setScreen('guided'); }} onTryAnother={() => void tryAnother()} onStartOver={clearPlan} />}{error ? <StateCard title="Plan unavailable" message={error} /> : null}</Shell>;
+  if (screen === 'proposal' && proposal) return <Shell theme={theme}><Heading eyebrow="YOUR PROPOSAL" title="Your outing, taking shape." subtitle="A grounded sequence of real ExploreWise places, ready to shape." />{loading ? <LoadingCard label={loadingLabel} /> : <WiseProposalCard proposal={proposal} requestText={activeRequest} busy={loading} onUse={() => { logWiseBudget('itinerary', proposal.state.budgetMinor); setState(proposal.state); setScreen('review'); }} onCustomize={() => { setState(proposal.state); setStageIndex(0); setCandidateRefreshKey((key) => key + 1); setScreen('guided'); }} onTryAnother={() => void tryAnother()} onStartOver={clearPlan} />}{error ? <StateCard title="Plan unavailable" message={error} actionLabel={guidedProposal && errorRetryable ? 'Retry' : undefined} onAction={guidedProposal && errorRetryable ? () => void retryGuided() : undefined} /> : null}</Shell>;
   if (!state) return null;
   if (screen === 'add-category') return <Shell theme={theme}><Heading eyebrow="ADD A STOP" title="Find a place or browse nearby." subtitle="Search every active ExploreWise place by name, or choose a category for nearby suggestions." /><ScreenSection><SectionHeader title="Search ExploreWise" description="Names, accents, punctuation, and small typos are handled." /><ClayInput accessibilityLabel="Search ExploreWise places" autoCapitalize="words" autoCorrect={false} placeholder="Place name" returnKeyType="search" value={addPlaceQuery} onChangeText={setAddPlaceQuery} />{addPlaceSearching ? <LoadingCard label="Searching the catalog…" /> : null}{addPlaceSearchError ? <StateCard title="Place search" message={addPlaceSearchError} /> : null}{!addPlaceSearching && addPlaceQuery.trim() && !addPlaceSearchError && addPlaceResults.length === 0 ? <StateCard title="No confident matches" message="Check the spelling or include more of the place name." /> : null}{addPlaceResults.map((place) => <CustomizeCandidateCard key={place.place_id} place={place} distanceLabel={place.distance_meters === null ? place.city : formatDistance(place.distance_meters)} highlighted={highlightedId === place.place_id} selected={false} onHighlight={() => setHighlightedId(place.place_id)} onSelect={() => addSearchedPlace(place)} />)}</ScreenSection><ScreenSection><SectionHeader title="Browse nearby" description="Choose a category for recommendations from your latest stop." /><View style={styles.categoryChoices}>{ADD_STOP_CATEGORIES.map((category) => <SecondaryButton key={category.id} label={category.label} accessibilityLabel={'Add ' + category.label + ' stop'} onPress={() => chooseAddedCategory(category.id)} />)}</View></ScreenSection><SecondaryButton label="Back" onPress={() => setScreen('review')} /></Shell>;
   if (screen === 'guided') {
@@ -181,17 +305,39 @@ export default function PlanScreen() {
     const selectedId = currentStage ? state.stops.find((stop) => stop.stageId === currentStage.id)?.place.place_id ?? null : null;
     const currentSelectionValid = Boolean(selectedId && candidateStageKey === currentCandidateKey && candidatePool.some((candidate) => candidate.place_id === selectedId));
     const navigation = customizeNavigation(state, stageIndex, { loading, currentSelectionValid });
-    const rankingContext = stageRankingContextFromIntent(proposal?.intent, currentStage ? stageActivityFocus(currentStage) : null);
+    const rankingContext = stageRankingContextFromProposal(proposal, currentStage ? stageActivityFocus(currentStage) : null);
     const foodPool = currentStage && isFoodStage(currentStage.categoryCodes) ? buildFoodCandidatePool(candidatePool, rankingContext) : null;
     const shortlist = currentStage ? shortlistWithSelectedCandidate(currentStage.categoryCodes, candidatePool, selectedId, CUSTOMIZE_CANDIDATE_LIMIT, rankingContext) : [];
     const shortlistIds = shortlist.map((place) => place.place_id);
     const distanceOrigin = stageDistanceOrigin(state, stageIndex);
     const viewMore = () => { if (!proposal || !currentStage || !origin) return; openAlternatives({ proposal, state, stage: currentStage, stageIndex, origin, distanceOrigin, candidates: candidatePool, shortlistedIds: shortlistIds, broaderCandidateIds: foodPool?.broader.map((place) => place.place_id) ?? [], explicitFoodFocus: foodPool?.explicitFocus ?? null, selectedId, select: (place) => { updateStop(place); router.back(); } }); router.push('/plan/alternatives' as never); };
     const explicitNoMatch = foodPool?.mode === 'explicit_food_no_match' ? foodPool.explicitFocus : null;
-    return <Shell theme={theme}><Heading eyebrow="CUSTOMIZE YOUR PLAN" title={`Customize Stop ${stageIndex + 1}`} subtitle={originSuggestionLabel(origin) ?? ''} /><StageProgress state={state} stageIndex={stageIndex} /><BudgetSummaryCard state={state} />{loading ? <LoadingCard label="Matching real places for this stage…" /> : explicitNoMatch ? <><StateCard title={`No strong ${foodFocusLabel(explicitNoMatch)} matches found nearby.`} message="Broader food alternatives are available, but they do not satisfy the explicit request." actionLabel={foodPool?.broader.length ? 'View more options' : undefined} onAction={foodPool?.broader.length ? viewMore : undefined} />{shortlist.length && currentStage ? <CandidateList title="Selected broader alternative" candidates={shortlist} distanceOrigin={distanceOrigin} hasMoreOptions={candidatePool.length > shortlist.length} highlightedId={highlightedId} selectedId={selectedId} onHighlight={setHighlightedId} onSelect={(place) => updateStop(place, currentStage.source === 'user_added')} onViewMore={viewMore} /> : null}</> : currentStage ? <CandidateList title={stageSelectionHeading(currentStage)} candidates={shortlist} distanceOrigin={distanceOrigin} hasMoreOptions={candidatePool.length > shortlist.length} highlightedId={highlightedId} selectedId={selectedId} onHighlight={setHighlightedId} onSelect={(place) => updateStop(place, currentStage.source === 'user_added')} onViewMore={viewMore} /> : null}{currentStage?.source === 'user_added' && selectedId ? <SecondaryButton label="Remove stop" accessibilityLabel={'Remove ' + currentStage.title + ' stop'} onPress={() => removeAddedStage(currentStage.id)} /> : null}<View style={styles.stageActions}><SecondaryButton label="Back" accessibilityLabel="Back to previous Customize stage" disabled={navigation.backDisabled} onPress={() => setStageIndex((index) => Math.max(0, index - 1))} style={styles.flex} /><PrimaryButton label={navigation.review ? 'Done Customizing' : navigation.primaryLabel} accessibilityLabel={navigation.review ? 'Done Customizing' : navigation.primaryLabel} disabled={!navigation.canContinue} onPress={() => navigation.review ? setScreen('review') : setStageIndex((index) => index + 1)} style={styles.flex} /></View><StartOverAction onPress={clearPlan} /></Shell>;
+    return <Shell theme={theme}><Heading eyebrow="CUSTOMIZE YOUR PLAN" title={`Customize Stop ${stageIndex + 1}`} subtitle={originSuggestionLabel(origin) ?? ''} /><StageProgress state={state} stageIndex={stageIndex} /><BudgetSummaryCard state={state} />{selectionNotice ? <StateCard title="Choose another stop" message={selectionNotice} /> : null}{loading ? <LoadingCard label="Matching real places for this stage…" /> : explicitNoMatch ? <><StateCard title={`No strong ${foodFocusLabel(explicitNoMatch)} matches found nearby.`} message="Broader food alternatives are available, but they do not satisfy the explicit request." actionLabel={foodPool?.broader.length ? 'View more options' : undefined} onAction={foodPool?.broader.length ? viewMore : undefined} />{shortlist.length && currentStage ? <CandidateList title="Selected broader alternative" candidates={shortlist} distanceOrigin={distanceOrigin} hasMoreOptions={candidatePool.length > shortlist.length} highlightedId={highlightedId} selectedId={selectedId} onHighlight={setHighlightedId} onSelect={(place) => updateStop(place, currentStage.source === 'user_added')} onViewMore={viewMore} /> : null}</> : currentStage ? <CandidateList title={stageSelectionHeading(currentStage)} candidates={shortlist} distanceOrigin={distanceOrigin} hasMoreOptions={candidatePool.length > shortlist.length} highlightedId={highlightedId} selectedId={selectedId} onHighlight={setHighlightedId} onSelect={(place) => updateStop(place, currentStage.source === 'user_added')} onViewMore={viewMore} /> : null}{currentStage?.source === 'user_added' && selectedId ? <SecondaryButton label="Remove stop" accessibilityLabel={'Remove ' + currentStage.title + ' stop'} onPress={() => removeAddedStage(currentStage.id)} /> : null}<View style={styles.stageActions}><SecondaryButton label="Back" accessibilityLabel="Back to previous Customize stage" disabled={navigation.backDisabled} onPress={() => setStageIndex((index) => Math.max(0, index - 1))} style={styles.flex} /><PrimaryButton label={navigation.review ? 'Done Customizing' : navigation.primaryLabel} accessibilityLabel={navigation.review ? 'Done Customizing' : navigation.primaryLabel} disabled={!navigation.canContinue} onPress={() => navigation.review ? setScreen('review') : setStageIndex((index) => index + 1)} style={styles.flex} /></View><StartOverAction onPress={clearPlan} /></Shell>;
   }
   const execution = state.finalized ? active?.execution : undefined;
   const executionPresentationKey = execution ? JSON.stringify([execution.itineraryId, execution.status, execution.stops.find((stop) => stop.status === 'current')?.id]) : undefined;
+  const finalizeCurrentPlan = () => {
+    if (guidedProposal) {
+      const guidedContext = { intent: guidedProposal.intent, anchorInclusions: guidedProposal.anchorInclusions } as const;
+      const validation = validateGuidedItinerary(state, guidedContext);
+      if (!validation.valid) {
+        setNotice(validation.message);
+        return;
+      }
+      const guidedState = finalizeItinerary(state, guidedContext);
+      if (!guidedState) {
+        setNotice('This outing still needs a small adjustment before it can be finalized.');
+        return;
+      }
+      const finalized = executionStore.finalize(randomUUID(), guidedState);
+      if (!finalized) return;
+      setState(finalized.itinerary); clearAlternatives(); setScreen('finalized'); setNotice(null);
+      return;
+    }
+    const finalized = executionStore.finalize(randomUUID(), finalizeItinerary(state));
+    if (!finalized) return;
+    setState(finalized.itinerary); clearAlternatives(); setScreen('finalized'); setNotice(null);
+  };
   const complete = areRequiredStagesComplete(state); const editable = screen === 'review' && !state.finalized; const canAdd = editable && state.stages.length < MAX_ITINERARY_STOPS;
   return <Shell theme={theme} resetScrollKey={executionPresentationKey} bottomAction={execution?.status === 'planned' ? <PrimaryButton label="Start itinerary" accessibilityLabel="Start itinerary" labelNumberOfLines={0} fullWidth style={styles.plannedStart} onPress={() => executionStore.dispatch({ type: 'start', itineraryId: execution.itineraryId })} /> : undefined}>{execution ? <ItineraryProgress execution={execution} /> : <Heading eyebrow="REVIEW YOUR PLAN" title="Check the details." subtitle={notice ?? 'Edit any stop before you finalize.'} />}
     {execution?.status === 'planned' ? <>
@@ -221,7 +367,7 @@ export default function PlanScreen() {
       <SecondaryButton label="Back to Explore" onPress={() => router.navigate('/' as never)} fullWidth />
       <StartOverAction onPress={clearPlan} />
     </> : null}
-    {!execution ? <>{canAdd ? <SecondaryButton label="+ Add another stop" accessibilityLabel="Add another stop" onPress={() => { setAddPlaceQuery(''); setAddPlaceResults([]); setAddPlaceSearchError(null); setScreen('add-category'); }} /> : editable ? <ThemedText type="small" themeColor="textSecondary">Maximum of {MAX_ITINERARY_STOPS} stops reached. Remove a manually added stop to add another.</ThemedText> : null}{!complete ? <ThemedText type="small" themeColor="textSecondary">Required stages are incomplete. Add the missing stops before finalizing.</ThemedText> : editable ? <PrimaryButton label="Finalize itinerary" onPress={() => { const finalized = executionStore.finalize(randomUUID(), finalizeItinerary(state)); if (!finalized) return; setState(finalized.itinerary); clearAlternatives(); setScreen('finalized'); setNotice(null); }} /> : null}<View style={styles.actions}>{editable ? <SecondaryButton label="Customize" onPress={() => { setStageIndex(0); setScreen('guided'); }} /> : null}<StartOverAction onPress={clearPlan} /></View></> : execution.status === 'planned' ? <View style={styles.actions}><StartOverAction onPress={clearPlan} /></View> : null}</Shell>;
+    {!execution ? <>{canAdd ? <SecondaryButton label="+ Add another stop" accessibilityLabel="Add another stop" onPress={() => { setAddPlaceQuery(''); setAddPlaceResults([]); setAddPlaceSearchError(null); setScreen('add-category'); }} /> : editable ? <ThemedText type="small" themeColor="textSecondary">Maximum of {MAX_ITINERARY_STOPS} stops reached. Remove a manually added stop to add another.</ThemedText> : null}{!complete ? <ThemedText type="small" themeColor="textSecondary">Required stages are incomplete. Add the missing stops before finalizing.</ThemedText> : editable ? <PrimaryButton label="Finalize itinerary" onPress={finalizeCurrentPlan} /> : null}<View style={styles.actions}>{editable ? <SecondaryButton label="Customize" onPress={() => { setStageIndex(0); setScreen('guided'); }} /> : null}<StartOverAction onPress={clearPlan} /></View></> : execution.status === 'planned' ? <View style={styles.actions}><StartOverAction onPress={clearPlan} /></View> : null}</Shell>;
 }
 
 function Shell({ children, theme, bottomAction, resetScrollKey }: { children: React.ReactNode; theme: ReturnType<typeof useTheme>; bottomAction?: React.ReactNode; resetScrollKey?: string }) {
@@ -264,7 +410,7 @@ function SelectedStops({ state, editable, onRemoveAdded, onReplace, execution, o
     });
     const renderStops = (items: typeof stops) => items.map(({ place, number, stageId, stopId, distanceLabel, status }, index) => {
       const isCurrent = execution.status === 'in_progress' && status === 'current';
-      return <ItineraryStopCard key={stageId} place={place} number={number} distanceLabel={distanceLabel} status={status}
+      return <ItineraryStopCard key={stageId} place={place} currencyCode={state.currencyCode} number={number} distanceLabel={distanceLabel} status={status}
         planned={execution.status === 'planned'}
         connectToNext={index < items.length - 1}
         onComplete={isCurrent ? () => onProgress({ type: 'complete', itineraryId: execution.itineraryId, stopId }) : undefined}
@@ -288,7 +434,7 @@ function SelectedStops({ state, editable, onRemoveAdded, onReplace, execution, o
       {earlier.length ? <View testID="itinerary-earlier" style={styles.stopGroup}><ThemedText accessibilityRole="header" style={Typography.cardTitle} themeColor="textSecondary">Earlier stops</ThemedText><View>{renderStops(earlier)}</View></View> : null}
     </View>;
   }
-  return <View style={styles.candidates}>{mapStops(state).map(({ place, number, stageId }, index) => { const stage = state.stages.find((item) => item.id === stageId); return <View key={stageId} style={styles.candidates}><ItineraryStopCard place={place} number={number} distanceLabel={distances[index]?.label} onRemove={editable && stage?.source === 'user_added' ? () => onRemoveAdded(stageId) : undefined} />{editable ? <SecondaryButton label={stage?.source === 'user_added' ? 'Change ' + place.name : 'Replace ' + place.name} onPress={() => onReplace(stageId)} /> : null}</View>; })}</View>;
+  return <View style={styles.candidates}>{mapStops(state).map(({ place, number, stageId }, index) => { const stage = state.stages.find((item) => item.id === stageId); return <View key={stageId} style={styles.candidates}><ItineraryStopCard place={place} currencyCode={state.currencyCode} number={number} distanceLabel={distances[index]?.label} onRemove={editable && stage?.source === 'user_added' ? () => onRemoveAdded(stageId) : undefined} />{editable ? <SecondaryButton label={stage?.source === 'user_added' ? 'Change ' + place.name : 'Replace ' + place.name} onPress={() => onReplace(stageId)} /> : null}</View>; })}</View>;
 }
 const styles = StyleSheet.create({ liveStops: { gap: Spacing.lg }, completedStops: { gap: Spacing.lg }, stopGroup: { gap: Spacing.sm }, screen: { flex: 1 }, safe: { flex: 1 }, scroll: { flex: 1 },
   plannedStart: { borderRadius: Radius.pill },

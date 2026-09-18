@@ -1,10 +1,11 @@
 import type { ActivityFocus } from './ask-wise-normalization';
 import type { PricedNearbyPlace } from './places';
-import { summarizeSelectedPrices } from '../../../../packages/planning/src/budget.ts';
+import { summarizeCurrencyAwarePrices, summarizeSelectedPrices } from '../../../../packages/planning/src/budget.ts';
 import { selectionConstraintForCategoryCode as sharedSelectionConstraintForCategoryCode } from '../../../../packages/planning/src/composition.ts';
 import { filterCandidatesByPlaceId, selectedPlaceIdsForOtherStages as sharedSelectedPlaceIdsForOtherStages } from '../../../../packages/planning/src/dedupe.ts';
 import { googleMapsDirectionsUrl } from './google-maps.ts';
 import { stageDistanceOrigin } from './planning-distance.ts';
+import { validateGuidedItinerary, type GuidedPlanConstraintContext } from './guided-plan-constraints.ts';
 
 export type ItineraryStageType = 'food_talk' | 'cafe' | 'activity_fun' | 'discovery';
 export type ItineraryLifecycle = 'proposal' | 'building' | 'review' | 'finalized';
@@ -180,12 +181,12 @@ export function stageIndexAfterRemoval(currentIndex: number, removedIndex: numbe
   return Math.min(currentIndex, remainingStageCount - 1);
 }
 
-export function selectedTotals(stops: readonly ItineraryStop[]) {
-  return summarizeSelectedPrices(stops);
+export function selectedTotals(stops: readonly ItineraryStop[], currencyCode?: string) {
+  return currencyCode ? summarizeCurrencyAwarePrices(stops, currencyCode) : summarizeSelectedPrices(stops);
 }
 
 export function remainingBudget(state: ItineraryState) {
-  const totals = selectedTotals(state.stops);
+  const totals = selectedTotals(state.stops, state.currencyCode);
   return { ...totals, optimisticMinor: totals.uncertain ? null : Math.max(0, state.budgetMinor - totals.minAmountMinor), conservativeMinor: totals.uncertain ? null : Math.max(0, state.budgetMinor - totals.maxAmountMinor) };
 }
 
@@ -205,7 +206,13 @@ export function selectStop(state: ItineraryState, stageId: string, place: Priced
 }
 export function removeStop(state: ItineraryState, stageId: string): ItineraryState { return state.finalized ? state : { ...state, finalized: false, stops: state.stops.filter((stop) => stop.stageId !== stageId) }; }
 /** Phase 1 finalization is a one-way transition; a new plan is required to edit again. */
-export function finalizeItinerary(state: ItineraryState): ItineraryState { return state.finalized ? state : { ...state, finalized: true }; }
+export function finalizeItinerary(state: ItineraryState): ItineraryState;
+export function finalizeItinerary(state: ItineraryState, guidedContext: GuidedPlanConstraintContext): ItineraryState | null;
+export function finalizeItinerary(state: ItineraryState, guidedContext?: GuidedPlanConstraintContext): ItineraryState | null {
+  if (state.finalized) return state;
+  if (guidedContext && !validateGuidedItinerary(state, guidedContext).valid) return null;
+  return { ...state, finalized: true };
+}
 export function mapStops(state: ItineraryState) { return state.stops.map((stop, index) => ({ ...stop, number: index + 1 })); }
 export function navigationUrl(place: Pick<PricedNearbyPlace, 'latitude' | 'longitude' | 'name' | 'address' | 'city' | 'region' | 'google_place_id' | 'google_match_status'>) {
   return googleMapsDirectionsUrl({

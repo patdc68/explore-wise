@@ -6,14 +6,18 @@ import { usePreventRemove } from 'expo-router/react-navigation';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
-import { ClayCard, ClayInput, ChoiceChip, IconButton, PrimaryButton, SecondaryButton, TertiaryButton } from '@/components/ui/clay';
+import { ClayCard, ClayInput, ChoiceChip, IconButton, LoadingCard, PrimaryButton, SecondaryButton, TertiaryButton } from '@/components/ui/clay';
 import { MaxContentWidth, Radius, Spacing, Typography } from '@/constants/theme';
 import { useDesignTheme } from '@/hooks/use-theme';
 import { useCurrentLocation } from '@/providers/current-location-provider';
-import { addPlannerAnchor, budgetSummary, completePlannerPreview, createPlannerSession, editPlannerQuestion, LABELS, nextPlannerQuestion, parseBudgetInput, plannerAdvanceDelay, plannerLocation, PLANNER_PHASES, plannerProgress, plannerQuestions, plannerScreenReady, preferenceSummary, previousPlannerQuestion, questionReady, removePlannerAnchor, replacePlannerAnchor, setPlannerAnswer, skipPlannerQuestion, validatePlannerPreview, type PlannerSession } from '@/services/guided-planner';
+import { usePlanningHandoff } from '@/providers/planning-handoff-provider';
+import { addPlannerAnchor, budgetSummary, createPlannerSession, editPlannerQuestion, LABELS, nextPlannerQuestion, parseBudgetInput, plannerAdvanceDelay, plannerLocation, PLANNER_PHASES, plannerProgress, plannerQuestions, plannerScreenReady, preferenceSummary, previousPlannerQuestion, questionReady, removePlannerAnchor, replacePlannerAnchor, setPlannerAnswer, skipPlannerQuestion, validatePlannerPreview, type PlannerSession } from '@/services/guided-planner';
+import { adaptGuidedPlanProposal, buildGeneratePlanRequest, guidedPlanGeneration, type GuidedPlanGenerationResult } from '@/services/guided-plan-generation';
+import { anchorReviewState, recordAnchorReview, finalizePlannerDraft } from '../../../../../packages/planning/src/draft';
+import type { PlannerIssue, GeneratePlanResponseV1 } from '../../../../../packages/planning/src/contracts';
 import { QUESTIONS } from '../../../../../packages/planning/src/questions';
 import type { QuestionId } from '../../../../../packages/planning/src/draft';
-import type { PlanningIntent } from '../../../../../packages/planning/src/intent';
+import { validatePlanningIntent, type PlanningIntent } from '../../../../../packages/planning/src/intent';
 import { PlannerSearch } from './planner-search';
 
 const TITLES: Record<QuestionId, string> = { occasion: 'What are you planning?', location: 'Where shall we explore?', party: 'How many are coming?', children: 'Any children joining?', child_age_bands: 'Which ages are coming?', budget: 'What feels comfortable?', schedule: 'How much time do you have?', moods: 'What’s the vibe?', food: 'What sounds good?', activities: 'What sounds good?', anchors: 'Already have somewhere in mind?', mobility: 'How far would you go?' };
@@ -22,6 +26,36 @@ const occasionIcons = { date: 'heart-outline', friends: 'people-outline', family
 const occasionCopy = { date: 'Time for the two of you', friends: 'Get the group together', family: 'An outing together', solo: 'A little time for yourself' };
 type PreferenceAnswer = PlanningIntent['food'] | PlanningIntent['activities'];
 type AnchorDisplay = { name: string; detail: string };
+type GenerationFeedback = Readonly<{ title: string; message: string; retryable: boolean; section?: QuestionId }>;
+
+function generationIssueSection(issue: PlannerIssue): QuestionId | undefined {
+  if (issue.path?.includes('budget') || issue.code.includes('budget') || issue.code === 'unknown_price_excluded') return 'budget';
+  if (issue.path?.includes('schedule') || issue.code === 'unsupported_time_window') return 'schedule';
+  if (issue.path?.includes('location') || issue.code.includes('geography')) return 'location';
+  if (issue.path?.includes('anchors') || issue.code.startsWith('anchor_') || issue.code === 'hard_constraint_unsatisfied') return 'anchors';
+  if (issue.path?.includes('food')) return 'food';
+  if (issue.path?.includes('activities')) return 'activities';
+  return undefined;
+}
+
+function issueCopy(issue: PlannerIssue): string {
+  if (issue.code === 'strict_budget_impossible' || issue.code === 'anchor_price_incompatible') return 'This budget cannot safely cover the selected places. Adjust the budget or choose different places.';
+  if (issue.code === 'anchor_outside_geography' || issue.code === 'unsupported_geography') return 'One selected place is outside this planning area. Choose another place or area.';
+  if (issue.code === 'anchor_inactive' || issue.code === 'anchor_scope_conflict' || issue.code === 'anchor_excluded') return 'One selected place is not available for these planning choices. Review your must-visit places.';
+  if (issue.code === 'unknown_price_excluded') return 'A selected place does not have the price evidence required by this budget. Choose another place or allow unverified prices.';
+  if (issue.code === 'unsupported_time_window') return 'Choose a supported outing duration or time window.';
+  return 'Review the highlighted choices before asking Wise to build the outing.';
+}
+
+function feedbackForResponse(response: GeneratePlanResponseV1): GenerationFeedback | null {
+  if (response.outcome === 'clarification_needed') {
+    const issue = response.issues[0];
+    return { title: 'A quick adjustment is needed', message: issue ? issueCopy(issue) : 'Review your choices before asking Wise to build the outing.', retryable: false, ...(issue ? { section: generationIssueSection(issue) } : {}) };
+  }
+  if (response.outcome === 'no_plan') return { title: 'No plan found yet', message: 'We couldn’t build a plan with these choices. Adjust the plan or try again when you’re ready.', retryable: true };
+  if (response.outcome === 'error') return { title: response.error.retryable ? 'Wise is temporarily unavailable' : 'This plan needs an adjustment', message: response.error.retryable ? 'Your answers are still here. Try again in a moment.' : 'Your answers are still here. Review them and try again.', retryable: response.error.retryable };
+  return null;
+}
 
 function Choice({ label, description, selected, onPress, icon }: { label: string; description?: string; selected: boolean; onPress: () => void; icon?: keyof typeof Ionicons.glyphMap }) {
   const theme = useDesignTheme();
@@ -76,8 +110,10 @@ function ReviewRow({ label, value, needsAttention, onEdit }: { label: string; va
 
 export default function GuidedPlannerScreen() {
   const theme = useDesignTheme(); const router = useRouter(); const navigation = useNavigation(); const location = useCurrentLocation();
+  const { submitGuidedPlanProposal } = usePlanningHandoff();
   const gutter = Spacing.md;
   const [session, setSession] = useState<PlannerSession>(createPlannerSession);
+  const sessionRef = useRef(session);
   const [anchorPlaces, setAnchorPlaces] = useState<Record<string, AnchorDisplay>>({});
   const [anchorSearchOpen, setAnchorSearchOpen] = useState(false);
   const [anchorBeingChanged, setAnchorBeingChanged] = useState<string | null>(null);
@@ -85,16 +121,22 @@ export default function GuidedPlannerScreen() {
   const scroll = useRef<ScrollView>(null); const [fade] = useState(() => new Animated.Value(1));
   const locationRequest = useRef(0);
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const generationController = useRef<AbortController | null>(null);
+  const mounted = useRef(true);
+  const [generationFeedback, setGenerationFeedback] = useState<GenerationFeedback | null>(null);
   const [reduceMotion, setReduceMotion] = useState(true);
   const { draft, screen } = session; const a = draft.answers;
+  useEffect(() => { sessionRef.current = session; }, [session]);
   useEffect(() => () => { locationRequest.current++; }, [screen]);
+  useEffect(() => () => { mounted.current = false; generationController.current?.abort(); generationController.current = null; }, []);
   const questions = plannerQuestions(draft); const question = questions.find((q) => q.id === screen);
   const progressState = plannerProgress(draft, screen);
   const progress = progressState.completion;
   const validation = validatePlannerPreview(draft);
   const change = <K extends Exclude<keyof PlanningIntent, 'planningIntentVersion'>>(key: K, value: PlanningIntent[K]) => setSession((s) => setPlannerAnswer(s, key, value));
   const clearAdvanceTimer = () => { if (advanceTimer.current) { clearTimeout(advanceTimer.current); advanceTimer.current = null; } };
-  const leave = () => { clearAdvanceTimer(); if (router.canGoBack()) router.back(); else router.replace('/'); };
+  const abortGeneration = () => { generationController.current?.abort(); generationController.current = null; };
+  const leave = () => { clearAdvanceTimer(); abortGeneration(); if (screen === 'generating') { setGenerationFeedback(null); setSession((current) => ({ ...current, screen: 'review' })); } if (router.canGoBack()) router.back(); else router.replace('/'); };
   const selectSingle = <K extends Exclude<keyof PlanningIntent, 'planningIntentVersion'>>(key: K, value: PlanningIntent[K]) => {
     clearAdvanceTimer(); Keyboard.dismiss();
     setSession((s) => setPlannerAnswer(s, key, value));
@@ -105,10 +147,10 @@ export default function GuidedPlannerScreen() {
   usePreventRemove(draft.revision > 0 && screen !== 'complete', ({ data }) => {
     Alert.alert('Leave this plan?', 'Your answers will be discarded when you leave.', [
       { text: 'Keep planning', style: 'cancel' },
-      { text: 'Discard plan', style: 'destructive', onPress: () => navigation.dispatch(data.action) },
+      { text: 'Discard plan', style: 'destructive', onPress: () => { abortGeneration(); navigation.dispatch(data.action); } },
     ]);
   });
-  const back = () => { clearAdvanceTimer(); Keyboard.dismiss(); if (screen === 'occasion' && !session.editing) leave(); else setSession(previousPlannerQuestion); };
+  const back = () => { clearAdvanceTimer(); Keyboard.dismiss(); if (screen === 'generating') { abortGeneration(); setGenerationFeedback(null); setSession((current) => ({ ...current, screen: 'review' })); return; } if (screen === 'occasion' && !session.editing) leave(); else setSession(previousPlannerQuestion); };
   useEffect(() => {
     const handler = BackHandler.addEventListener('hardwareBackPress', () => { back(); return true; });
     return () => handler.remove();
@@ -127,6 +169,72 @@ export default function GuidedPlannerScreen() {
   }, [screen, reduceMotion, fade]);
   useEffect(() => () => clearAdvanceTimer(), []);
 
+  const applyReviews = (current: PlannerSession, response: GeneratePlanResponseV1, revision: number): PlannerSession => {
+    if (!('anchorReviews' in response)) return current;
+    let reviewed = current.draft;
+    for (const review of response.anchorReviews) {
+      const anchor = reviewed.answers.anchors?.find((candidate) => candidate.placeId.toLowerCase() === review.placeId.toLowerCase());
+      if (!anchor || anchor.intent !== review.intent || (review.checkedRevision !== undefined && review.checkedRevision !== revision)) continue;
+      reviewed = recordAnchorReview(reviewed, revision, anchor.placeId, review.status);
+    }
+    return { ...current, draft: reviewed };
+  };
+
+  const startGeneration = async () => {
+    if (generationController.current || sessionRef.current.screen !== 'review') return;
+    const captured = sessionRef.current;
+    const revision = captured.draft.revision;
+    const requestResult = buildGeneratePlanRequest(captured.draft, revision);
+    if (!requestResult.success) {
+      setGenerationFeedback({ title: 'Review your answers', message: 'Complete the marked sections before asking Wise to build the outing.', retryable: false, section: generationIssueSection({ code: 'invalid_request', message: 'invalid request' }) });
+      return;
+    }
+    const controller = new AbortController();
+    generationController.current = controller;
+    setGenerationFeedback(null);
+    setSession((current) => current.draft.revision === revision ? { ...current, screen: 'generating', preview: null } : current);
+    let result: GuidedPlanGenerationResult;
+    try {
+      result = await guidedPlanGeneration.generate(requestResult.data, controller.signal);
+    } catch {
+      if (!mounted.current || generationController.current !== controller) return;
+      generationController.current = null;
+      setGenerationFeedback({ title: 'Couldn’t reach Wise', message: 'Your answers are still here. Check your connection and try again.', retryable: true });
+      setSession((current) => ({ ...current, screen: 'review' }));
+      return;
+    }
+    if (!mounted.current || generationController.current !== controller) return;
+    generationController.current = null;
+    const current = sessionRef.current;
+    if (current.draft.revision !== revision) {
+      if (current.screen === 'generating') setSession({ ...current, screen: 'review', preview: null });
+      return;
+    }
+    if (result.kind === 'transport_error') {
+      setGenerationFeedback({ title: result.error.kind === 'aborted' ? 'Generation cancelled' : 'Couldn’t reach Wise', message: result.error.kind === 'aborted' ? 'Your answers are still here. You can ask Wise again when ready.' : 'Your answers are still here. Check your connection and try again.', retryable: result.error.retryable });
+      setSession({ ...current, screen: 'review' });
+      return;
+    }
+    const reviewed = applyReviews(current, result.response, revision);
+    if (result.response.outcome === 'proposal' || result.response.outcome === 'partial_plan') {
+      const finalized = finalizePlannerDraft(reviewed.draft);
+      const mustAnchorsReady = (reviewed.draft.answers.anchors ?? []).filter((anchor) => anchor.intent === 'must_visit').every((anchor) => anchorReviewState(reviewed.draft, anchor.placeId) === 'valid');
+      const softPreferredFinalized = !finalized.success && mustAnchorsReady ? validatePlanningIntent(reviewed.draft.answers) : finalized;
+      if (!softPreferredFinalized.success) {
+        setGenerationFeedback({ title: 'We need to recheck a place', message: 'The selected places changed while your plan was being built. Review your must-visit choices and try again.', retryable: false, section: 'anchors' });
+        setSession({ ...reviewed, screen: 'review', preview: null });
+        return;
+      }
+      const proposal = adaptGuidedPlanProposal(result.response, requestResult.data);
+      submitGuidedPlanProposal(proposal);
+      setSession({ ...reviewed, screen: 'review', preview: softPreferredFinalized.data });
+      router.replace('/plan' as never);
+      return;
+    }
+    setGenerationFeedback(feedbackForResponse(result.response));
+    setSession({ ...reviewed, screen: 'review', preview: null });
+  };
+
   const party = a.party ?? { size: NaN, children: null };
   const budget = a.budget ?? { amountMinor: NaN, currencyCode: 'PHP', basis: 'total' as const, strictness: 'strict' as const, unknownPricePolicy: 'allow_with_disclosure' as const };
   const changeBudget = (patch: Partial<PlanningIntent['budget']>) => change('budget', { ...budget, ...patch, unknownPricePolicy: 'allow_with_disclosure' });
@@ -140,15 +248,21 @@ export default function GuidedPlannerScreen() {
   };
   const anchorDisplay = (placeId: string): AnchorDisplay => anchorPlaces[placeId.toLowerCase()] ?? { name: 'Selected place', detail: '' };
   let content: ReactNode;
-  if (screen === 'complete') {
+  if (screen === 'generating') {
+    content = <ClayCard variant="hero" style={styles.group} accessibilityLiveRegion="polite">
+      <LoadingCard label="Building your outing…" />
+      <ThemedText type="small" themeColor="textSecondary">Wise is using your answers and the ExploreWise catalog.</ThemedText>
+      <SecondaryButton label="Cancel generation" onPress={() => { abortGeneration(); setSession((current) => ({ ...current, screen: 'review' })); }} />
+    </ClayCard>;
+  } else if (screen === 'complete') {
     content = <ClayCard variant="hero" style={styles.group}>
       <Ionicons name="checkmark-circle-outline" size={48} color={theme.text.primary} accessible={false} />
-      <ThemedText style={Typography.screenHeading}>Your plan brief is ready</ThemedText>
-      <ThemedText>This is a local preview. Your answers are valid, but no recommendations have been generated.</ThemedText>
+      <ThemedText style={Typography.screenHeading}>Review your answers to continue</ThemedText>
+      <ThemedText>Your answers are saved in this planner. Ask Wise to build a grounded outing when you’re ready.</ThemedText>
       <SecondaryButton label="Review my answers" onPress={() => setSession(previousPlannerQuestion)} />
-      <ThemedText type="small" themeColor="textSecondary">No recommendation service was called.</ThemedText>
     </ClayCard>;
   } else if (screen === 'review') {
+    const anchorNeedsAttention = a.anchors?.some((anchor) => anchorReviewState(draft, anchor.placeId) !== 'valid') ?? false;
     const rows: { id: QuestionId; value: string; group: 'Basics' | 'Budget & time' | 'Preferences' | 'Final touches' }[] = [
       { id: 'occasion', value: LABELS[a.occasion ?? 'unanswered'], group: 'Basics' },
       { id: 'location', value: a.location ? `${a.location.label}\n5 km around this area` : 'Choose an area', group: 'Basics' },
@@ -168,11 +282,17 @@ export default function GuidedPlannerScreen() {
       <ThemedText themeColor="textSecondary">Everything is editable. Tap a row to make a change.</ThemedText>
       {groups.map((group) => <View key={group} style={styles.reviewGroup}>
         <ThemedText style={Typography.eyebrow}>{group}</ThemedText>
-        <View style={styles.reviewList}>{rows.filter((row) => row.group === group).map((row) => <ReviewRow key={row.id} label={SECTION_LABELS[row.id]} value={row.value} needsAttention={!questionReady(draft, row.id) || (!validation.success && validation.issues.some((issue) => issue.path.startsWith(`$.${row.id}`) || issue.path.startsWith(`$.answers.${row.id}`)))} onEdit={() => setSession((s) => editPlannerQuestion(s, row.id === 'party' && a.occasion === 'solo' ? 'occasion' : row.id === 'activities' ? 'food' : row.id))} />)}</View>
+        <View style={styles.reviewList}>{rows.filter((row) => row.group === group).map((row) => <ReviewRow key={row.id} label={SECTION_LABELS[row.id]} value={row.value} needsAttention={(row.id === 'anchors' && anchorNeedsAttention) || generationFeedback?.section === row.id || !questionReady(draft, row.id) || (!validation.success && validation.issues.some((issue) => issue.path.startsWith(`$.${row.id}`) || issue.path.startsWith(`$.answers.${row.id}`)))} onEdit={() => setSession((s) => editPlannerQuestion(s, row.id === 'party' && a.occasion === 'solo' ? 'occasion' : row.id === 'activities' ? 'food' : row.id))} />)}</View>
       </View>)}
       {a.anchors?.length ? <ThemedText type="small" themeColor="textSecondary">Must-visit places stay attached to this plan.</ThemedText> : null}
       {!validation.success ? <ThemedText accessibilityLiveRegion="polite">Check the sections marked “Needs attention” before continuing.</ThemedText> : null}
       <ThemedText type="small" themeColor="textSecondary">Some places may have unverified prices.</ThemedText>
+      {generationFeedback ? <ClayCard variant="subtle" style={styles.generationFeedback} accessibilityLiveRegion="polite">
+        <ThemedText style={Typography.label}>{generationFeedback.title}</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">{generationFeedback.message}</ThemedText>
+        {generationFeedback.section ? <SecondaryButton label={`Review ${SECTION_LABELS[generationFeedback.section]}`} onPress={() => { setGenerationFeedback(null); setSession((current) => editPlannerQuestion(current, generationFeedback.section!)); }} /> : null}
+        {generationFeedback.retryable ? <PrimaryButton label="Retry" onPress={() => void startGeneration()} /> : null}
+      </ClayCard> : null}
     </View>;
   } else if (screen === 'occasion') {
     content = <View style={styles.group}>{QUESTIONS.find((q) => q.id === 'occasion')!.allowedValues!.map((value) => {
@@ -269,19 +389,19 @@ export default function GuidedPlannerScreen() {
       <View style={styles.container}>
         <View style={[styles.header, { paddingHorizontal: gutter }]}>
           <IconButton accessibilityLabel="Back" variant="ghost" icon={<Ionicons name="arrow-back" size={24} color={theme.text.primary} />} onPress={back} />
-          <View style={styles.grow}><ThemedText style={Typography.label}>Build my plan</ThemedText><ThemedText type="small" themeColor="textSecondary">{screen === 'review' ? 'Review your outing' : screen === 'complete' ? 'Local preview' : progressState.phase}</ThemedText></View>
+          <View style={styles.grow}><ThemedText style={Typography.label}>Build my plan</ThemedText><ThemedText type="small" themeColor="textSecondary">{screen === 'review' || screen === 'generating' ? 'Review your outing' : screen === 'complete' ? 'Review your outing' : progressState.phase}</ThemedText></View>
           <IconButton accessibilityLabel="Close planner" variant="ghost" icon={<Ionicons name="close" size={24} color={theme.text.primary} />} onPress={leave} />
         </View>
-        <View style={{ paddingHorizontal: gutter }}><PlannerPhaseRail phaseIndex={progressState.phaseIndex} phase={screen === 'review' ? 'Review' : screen === 'complete' ? 'Review' : progressState.phase} completion={progress} /></View>
+        <View style={{ paddingHorizontal: gutter }}><PlannerPhaseRail phaseIndex={progressState.phaseIndex} phase={screen === 'review' || screen === 'generating' || screen === 'complete' ? 'Review' : progressState.phase} completion={progress} /></View>
         <ScrollView ref={scroll} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]}>
           <Animated.View style={[styles.group, { opacity: fade }]}>
-            {screen !== 'complete' ? <ThemedText accessibilityRole="header" style={Typography.screenHeading}>{screen === 'review' ? reviewTitle(a) : TITLES[screen]}</ThemedText> : null}
+            {screen !== 'complete' && screen !== 'generating' ? <ThemedText accessibilityRole="header" style={Typography.screenHeading}>{screen === 'review' ? reviewTitle(a) : TITLES[screen]}</ThemedText> : screen === 'generating' ? <ThemedText accessibilityRole="header" style={Typography.screenHeading}>Building your outing</ThemedText> : null}
             <View key={screen}>{content}</View>
             {screen === 'schedule' && a.schedule && !questionReady(draft, 'schedule') ? <ThemedText type="small" accessibilityLiveRegion="polite" style={{ color: theme.semantic.error.default }}>Check the date and time. Use a real date, 24-hour HH:mm, and an end after the start.</ThemedText> : null}
           </Animated.View>
         </ScrollView>
         <View style={[styles.footer, { borderTopColor: theme.border.subtle, backgroundColor: theme.background.canvas, paddingHorizontal: gutter }]}>
-          {screen === 'complete' ? <PrimaryButton label="Back to Explore" onPress={leave} /> : screen === 'review' ? <PrimaryButton label="Let Wise plan it" disabled={!validation.success} onPress={() => { Keyboard.dismiss(); setSession(completePlannerPreview); }} /> : <>
+          {screen === 'generating' ? <SecondaryButton label="Cancel generation" onPress={() => { abortGeneration(); setSession((current) => ({ ...current, screen: 'review' })); }} /> : screen === 'complete' ? <PrimaryButton label="Review my answers" onPress={() => setSession(previousPlannerQuestion)} /> : screen === 'review' ? <PrimaryButton label="Let Wise plan it" disabled={!validation.success} onPress={() => { Keyboard.dismiss(); void startGeneration(); }} /> : <>
             {!(screen === 'occasion' || screen === 'mobility' || (screen === 'schedule' && a.schedule?.kind === 'duration')) ? <PrimaryButton label={session.editing ? 'Save answer' : 'Continue'} disabled={!plannerScreenReady(draft, screen)} onPress={() => { Keyboard.dismiss(); clearAdvanceTimer(); setSession(nextPlannerQuestion); }} /> : null}
             {question && !question.required && screen !== 'food' && screen !== 'activities' && !(screen === 'anchors' && a.anchors?.length) ? <TertiaryButton label="Skip" onPress={() => { Keyboard.dismiss(); clearAdvanceTimer(); setSession(skipPlannerQuestion); }} /> : null}
           </>}
@@ -327,7 +447,7 @@ const styles = StyleSheet.create({
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   phaseRail: { gap: Spacing.sm, paddingTop: Spacing.xs }, phaseSegments: { flexDirection: 'row', gap: Spacing.xs }, phaseSegment: { borderRadius: Radius.pill, flex: 1, height: 5 }, phaseMeta: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   footer: { padding: Spacing.md, gap: Spacing.xs, borderTopWidth: 1 },
-  reviewGroup: { gap: Spacing.sm }, reviewList: { gap: 0 }, reviewRow: { alignItems: 'center', borderBottomWidth: 1, flexDirection: 'row', gap: Spacing.md, minHeight: 64, paddingVertical: Spacing.sm }, reviewValue: { lineHeight: 21 }, editButton: { minHeight: 44, paddingHorizontal: Spacing.sm },
+  reviewGroup: { gap: Spacing.sm }, reviewList: { gap: 0 }, reviewRow: { alignItems: 'center', borderBottomWidth: 1, flexDirection: 'row', gap: Spacing.md, minHeight: 64, paddingVertical: Spacing.sm }, reviewValue: { lineHeight: 21 }, editButton: { minHeight: 44, paddingHorizontal: Spacing.sm }, generationFeedback: { gap: Spacing.sm },
   selectedLocation: { gap: Spacing.md }, preferenceSection: { gap: Spacing.sm }, preferenceModes: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs },
   anchorCard: { gap: Spacing.sm }, anchorActions: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs },
 });

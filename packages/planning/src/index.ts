@@ -9,4 +9,5 @@ export * from './intent.ts';
 export * from './policy.ts';
 export * from './ranking.ts';
 export * from './questions.ts';
+export * from './retrieval.ts';
 export * from './validation.ts';

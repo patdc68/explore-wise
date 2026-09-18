@@ -14,6 +14,11 @@ export const PLANNER_POLICY = Object.freeze({
   maxCategoryCodesPerQuery: 20,
   maxGenerationAnchors: 6,
   maxCandidatePool: 50,
+  candidatePools: Object.freeze({
+    broad: 50,
+    budgetEvidence: 12,
+    preferenceEvidence: 16,
+  }),
   maxGeneratedStages: 5,
   maxDatabaseCalls: 20,
   maxAttempts: 5,
@@ -38,6 +43,9 @@ export const MAX_RADIUS_METERS = PLANNER_POLICY.radiusMeters.max;
 export const MAX_GENERATION_ANCHORS = PLANNER_POLICY.maxGenerationAnchors;
 export const MAX_CATEGORY_CODES_PER_QUERY = PLANNER_POLICY.maxCategoryCodesPerQuery;
 export const MAX_CANDIDATE_POOL = PLANNER_POLICY.maxCandidatePool;
+export const MAX_BROAD_CANDIDATES = PLANNER_POLICY.candidatePools.broad;
+export const MAX_BUDGET_EVIDENCE_CANDIDATES = PLANNER_POLICY.candidatePools.budgetEvidence;
+export const MAX_PREFERENCE_EVIDENCE_CANDIDATES = PLANNER_POLICY.candidatePools.preferenceEvidence;
 export const MAX_GENERATED_STAGES = PLANNER_POLICY.maxGeneratedStages;
 export const MAX_DATABASE_CALLS = PLANNER_POLICY.maxDatabaseCalls;
 export const MAX_ATTEMPTS = PLANNER_POLICY.maxAttempts;

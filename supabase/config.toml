@@ -3,3 +3,8 @@ verify_jwt = false
 
 [functions.ensure-google-place-identity]
 verify_jwt = false
+
+[functions.generate-plan]
+# Anonymous planning is supported. The function validates the publishable/anon
+# key at its own boundary and verifies an optional bearer session when present.
+verify_jwt = false

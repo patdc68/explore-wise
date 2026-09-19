@@ -8,3 +8,8 @@ verify_jwt = false
 # Anonymous planning is supported. The function validates the publishable/anon
 # key at its own boundary and verifies an optional bearer session when present.
 verify_jwt = false
+
+[functions.get-place-presentation]
+# Presentation enrichment is anonymous-safe; the handler validates the
+# publishable/anon key and accepts an optional bearer session.
+verify_jwt = false

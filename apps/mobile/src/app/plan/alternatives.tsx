@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -11,24 +11,29 @@ import { ThemedText } from '@/components/themed-text';
 import { ChoiceChip, ClayCard, PrimaryButton, SecondaryButton } from '@/components/ui/clay';
 import { MaxContentWidth, Radius, Spacing, Typography } from '@/constants/theme';
 import { useDesignTheme, useTheme } from '@/hooks/use-theme';
+import { usePlacePresentations } from '@/hooks/use-place-presentations';
+import { googlePresentationAllowed } from '@/services/place-presentation-policy';
 import { alternativesTitle, originSuggestionLabel } from '@/services/customize-ui';
 import { ACTIVITY_CATEGORY_CODES, ALTERNATIVES_PAGE_SIZE, activityFamily, foodFocusLabel, isActivityStage, isFoodStage } from '@/services/food-candidate-diversity';
 import type { PricedNearbyPlace } from '@/services/places';
 import { usePlanningAlternatives } from '@/providers/planning-alternatives-provider';
 import { isBroadActivityStage } from '@/services/itinerary';
 import { stageDistanceLabel, type StageDistanceOrigin } from '@/services/planning-distance';
+import type { PlacePresentationV1 } from '../../../../../packages/place-presentation/src/contracts.ts';
 
 type ActivityFilter = 'all' | 'recreation' | 'entertainment' | 'cinema' | 'outdoor' | 'attraction' | 'culture';
 const activityFilters: readonly { id: ActivityFilter; label: string }[] = [
   { id: 'all', label: 'All' }, { id: 'recreation', label: 'Recreation' }, { id: 'entertainment', label: 'Entertainment' },
   { id: 'cinema', label: 'Cinema' }, { id: 'outdoor', label: 'Outdoor' }, { id: 'attraction', label: 'Attractions' }, { id: 'culture', label: 'Culture' },
 ];
+const presentationViewabilityConfig = { itemVisiblePercentThreshold: 40 };
 
 export default function AlternativesScreen() {
   const router = useRouter(); const theme = useTheme(); const { session } = usePlanningAlternatives();
   const [sort, setSort] = useState<'recommended' | 'nearest'>('recommended');
   const [filter, setFilter] = useState<ActivityFilter>('all');
   const [visibleCount, setVisibleCount] = useState(ALTERNATIVES_PAGE_SIZE);
+  const [presentationWindow, setPresentationWindow] = useState<readonly PricedNearbyPlace[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
   const [pagingError, setPagingError] = useState<string | null>(null);
   const genericActivity = Boolean(session && isActivityStage(session.stage.categoryCodes) && isBroadActivityStage(session.stage) && session.stage.categoryCodes.some((code) => ACTIVITY_CATEGORY_CODES.includes(code as typeof ACTIVITY_CATEGORY_CODES[number])));
@@ -38,8 +43,15 @@ export default function AlternativesScreen() {
     const filtered = genericActivity && filter !== 'all' ? more.filter((place) => activityFamily(place) === filter) : more;
     return sort === 'nearest' ? [...filtered].sort((left, right) => Number(session?.broaderCandidateIds.includes(left.place_id)) - Number(session?.broaderCandidateIds.includes(right.place_id)) || (left.distance_meters ?? Number.POSITIVE_INFINITY) - (right.distance_meters ?? Number.POSITIVE_INFINITY)) : filtered;
   }, [filter, genericActivity, session?.broaderCandidateIds, session?.candidates, session?.shortlistedIds, sort]);
+  useEffect(() => { setPresentationWindow([]); }, [filter, sort, visibleCount]);
+  const visible = session ? alternatives.slice(0, visibleCount) : [];
+  const presentationCandidates = presentationWindow;
+  const { presentations, revisionById, refresh } = usePlacePresentations(presentationCandidates, 'thumbnail', { allowGoogle: googlePresentationAllowed('alternatives') });
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: readonly { item?: PricedNearbyPlace }[] }) => {
+    const next = viewableItems.map((entry) => entry.item).filter((item): item is PricedNearbyPlace => Boolean(item)).slice(0, 3);
+    setPresentationWindow(next);
+  }, []);
   if (!session) return <Screen theme={theme}><StateCard title="Options unavailable" message="Return to Customize and open View more options again." actionLabel="Back to Customize" onAction={() => router.back()} /></Screen>;
-  const visible = alternatives.slice(0, visibleCount);
   const canLoadMore = visible.length < alternatives.length;
   const loadMore = () => {
     if (loadingMore || !canLoadMore) return;
@@ -59,23 +71,28 @@ export default function AlternativesScreen() {
     keyExtractor={(place) => place.place_id}
     contentContainerStyle={styles.content}
     ListHeaderComponent={<View style={styles.header}><Pressable accessibilityRole="button" accessibilityLabel="Back to Customize" onPress={() => router.back()} style={styles.back}><Ionicons name="arrow-back" size={20} color={theme.text} /><ThemedText type="smallBold">Customize</ThemedText></Pressable><ThemedText type="smallBold" themeColor="textSecondary" style={styles.eyebrow}>MORE OPTIONS</ThemedText><ThemedText style={Typography.screenHeading}>{alternativesTitle(session.stage)}</ThemedText><ThemedText type="small" themeColor="textSecondary">{originSuggestionLabel(session.origin) ?? 'More grounded suggestions'}</ThemedText>{session.explicitFoodFocus && session.broaderCandidateIds.length ? <ThemedText type="small" themeColor="textSecondary">{`Broader alternatives are shown after ${foodFocusLabel(session.explicitFoodFocus)} matches and are not presented as matches.`}</ThemedText> : null}{isFoodStage(session.stage.categoryCodes) ? <View style={styles.controls}><SortButton label="Recommended" selected={sort === 'recommended'} onPress={() => setSort('recommended')} /><SortButton label="Nearest" selected={sort === 'nearest'} onPress={() => setSort('nearest')} /></View> : null}{genericActivity ? <FlatList horizontal data={activityFilters} keyExtractor={(item) => item.id} renderItem={({ item }) => <FilterChip label={item.label} selected={filter === item.id} onPress={() => { setFilter(item.id); setVisibleCount(ALTERNATIVES_PAGE_SIZE); }} />} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} /> : null}</View>}
-    renderItem={({ item }) => <AlternativeCard place={item} currencyCode={'source' in session.proposal ? session.proposal.state.currencyCode ?? session.proposal.intent.budget.currencyCode : undefined} distanceOrigin={session.distanceOrigin} broader={session.broaderCandidateIds.includes(item.place_id)} selected={session.selectedId === item.place_id} onSelect={() => select(item)} />}
+    renderItem={({ item }) => <AlternativeCard place={item} currencyCode={'source' in session.proposal ? session.proposal.state.currencyCode ?? session.proposal.intent.budget.currencyCode : undefined} distanceOrigin={session.distanceOrigin} broader={session.broaderCandidateIds.includes(item.place_id)} selected={session.selectedId === item.place_id} onSelect={() => select(item)} presentation={presentations.get(item.place_id.toLowerCase())} presentationRevision={revisionById[item.place_id.toLowerCase()] ?? 0} onPresentationImageError={() => refresh(item.place_id)} />}
     ListEmptyComponent={<StateCard title={filter === 'all' ? 'No more options' : 'No more options in this category.'} message={filter === 'all' ? 'This list contains every eligible nearby place.' : 'Try the full set of suggestions.'} actionLabel={filter === 'all' ? undefined : 'Show all'} onAction={filter === 'all' ? undefined : () => { setFilter('all'); setVisibleCount(ALTERNATIVES_PAGE_SIZE); }} />}
     ListFooterComponent={pagingError ? <View style={styles.footer}><ThemedText type="small" themeColor="textSecondary">{pagingError}</ThemedText><SecondaryButton label="Retry" accessibilityLabel="Retry loading more options" onPress={loadMore} /></View> : canLoadMore ? <View style={styles.footer}>{loadingMore ? <ActivityIndicator color={theme.accent} /> : <SecondaryButton label="Load more" accessibilityLabel="Load more options" onPress={loadMore} />}</View> : visible.length ? <ThemedText type="small" themeColor="textSecondary" style={styles.end}>You&apos;ve seen all currently eligible options.</ThemedText> : null}
     onEndReached={loadMore}
     onEndReachedThreshold={0.5}
+    initialNumToRender={3}
+    maxToRenderPerBatch={3}
+    windowSize={5}
+    viewabilityConfig={presentationViewabilityConfig}
+    onViewableItemsChanged={onViewableItemsChanged}
   /></SafeAreaView></View>;
 }
 
 function Screen({ children, theme }: { children: React.ReactNode; theme: ReturnType<typeof useTheme> }) { return <View style={[styles.screen, { backgroundColor: theme.background }]}><SafeAreaView edges={['top']} style={styles.safe}><View style={styles.content}>{children}</View></SafeAreaView></View>; }
 function SortButton({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) { return <ChoiceChip label={label} accessibilityLabel={`${label} sort`} selected={selected} onPress={onPress} />; }
 function FilterChip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) { return <ChoiceChip label={label} accessibilityLabel={`${label} filter`} selected={selected} onPress={onPress} />; }
-function AlternativeCard({ place, currencyCode, distanceOrigin, broader, selected, onSelect }: { place: PricedNearbyPlace; currencyCode?: string; distanceOrigin: StageDistanceOrigin; broader: boolean; selected: boolean; onSelect: () => void }) {
+function AlternativeCard({ place, currencyCode, distanceOrigin, broader, selected, onSelect, presentation, presentationRevision = 0, onPresentationImageError }: { place: PricedNearbyPlace; currencyCode?: string; distanceOrigin: StageDistanceOrigin; broader: boolean; selected: boolean; onSelect: () => void; presentation?: PlacePresentationV1; presentationRevision?: number; onPresentationImageError?: () => void }) {
   const theme = useDesignTheme();
   const distance = stageDistanceLabel(distanceOrigin, place);
   return <ClayCard variant={selected ? 'raised' : 'subtle'} style={[styles.card, selected ? { borderColor: theme.accent.primary, borderWidth: 2 } : null]}>
     <View style={styles.cardRow}>
-      <PlaceVisual place={place} placeId={place.place_id} thumbnail />
+      <PlaceVisual place={place} placeId={place.place_id} thumbnail presentation={presentation} presentationRevision={presentationRevision} onPresentationImageError={onPresentationImageError} />
       <View style={styles.cardCopy}>
         {broader ? <ThemedText style={Typography.caption} themeColor="muted">BROADER ALTERNATIVE</ThemedText> : null}
         <ThemedText style={Typography.cardTitle}>{place.name}</ThemedText>

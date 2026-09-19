@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { PriceSummary } from '@/components/discovery/price-summary';
@@ -9,11 +10,15 @@ import { ThemedText } from '@/components/themed-text';
 import { ClayCard, MetadataBadge, PrimaryButton, ScreenSection, SecondaryButton, SectionHeader, TertiaryButton } from '@/components/ui/clay';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useDesignTheme } from '@/hooks/use-theme';
+import { usePresentationViewport } from '@/hooks/use-place-presentation-viewport';
+import { usePlacePresentations } from '@/hooks/use-place-presentations';
 import { foodFocusLabel } from '@/services/food-candidate-diversity';
 import type { FoodFocus } from '@/services/ask-wise-normalization';
 import { remainingBudget } from '@/services/itinerary';
 import { formatMinorUnits, formatPhp } from '@/services/money';
 import { sequentialStopDistances } from '@/services/planning-distance';
+import { googlePresentationAllowed } from '@/services/place-presentation-policy';
+import { visiblePresentationIds } from '@/services/place-presentation-visibility';
 import type { PlanProposal } from '@/services/wise-proposal';
 
 export function WiseProposalCard({ proposal, requestText, onUse, onCustomize, onTryAnother, onStartOver, busy }: { proposal: PlanProposal; requestText: string | null; onUse: () => void; onCustomize: () => void; onTryAnother: () => void; onStartOver: () => void; busy: boolean }) {
@@ -28,8 +33,16 @@ export function WiseProposalCard({ proposal, requestText, onUse, onCustomize, on
   const mobilityWarning = guidedWarnings.some((warning) => warning.code === 'mobility_expanded');
   const unappliedPreferences = 'source' in proposal ? proposal.unappliedPreferences : [];
   const partial = 'source' in proposal && proposal.outcome === 'partial_plan';
+  const viewport = usePresentationViewport();
+  const [proposalTop, setProposalTop] = useState<number | null>(null);
+  const [stopsTop, setStopsTop] = useState<number | null>(null);
+  const [stopLayouts, setStopLayouts] = useState<Readonly<Record<string, Readonly<{ y: number; height: number }>>>>({});
+  const measuredStopLayouts = useMemo(() => proposalTop === null || stopsTop === null ? {} : Object.fromEntries(Object.entries(stopLayouts).map(([id, layout]) => [id, { y: proposalTop + stopsTop + layout.y, height: layout.height }])), [proposalTop, stopLayouts, stopsTop]);
+  const visibleStopIds = useMemo(() => visiblePresentationIds(stops.map((stop) => stop.place.place_id), viewport, measuredStopLayouts), [measuredStopLayouts, stops, viewport]);
+  const presentationCandidates = visibleStopIds.map((id) => stops.find((stop) => stop.place.place_id.toLowerCase() === id.toLowerCase())?.place).filter((place): place is typeof stops[number]['place'] => Boolean(place));
+  const { presentations, revisionById, refresh } = usePlacePresentations(presentationCandidates, 'thumbnail', { allowGoogle: googlePresentationAllowed('proposal') });
 
-  return <View style={styles.wrap}>
+  return <View style={styles.wrap} onLayout={(event) => setProposalTop(event.nativeEvent.layout.y)}>
     <View style={styles.requestContext}>
       <View style={[styles.requestIcon, { backgroundColor: theme.accent.primarySoft }]}>
         <Ionicons name="chatbubble-ellipses-outline" size={18} color={theme.text.primary} accessible={false} />
@@ -53,11 +66,11 @@ export function WiseProposalCard({ proposal, requestText, onUse, onCustomize, on
 
     <ScreenSection>
       <SectionHeader title="Proposed stops" description={`${stops.length} ${stops.length === 1 ? 'place' : 'places'} selected`} />
-      <View style={styles.stops}>
+      <View style={styles.stops} onLayout={(event) => setStopsTop(event.nativeEvent.layout.y)}>
         {stops.map((stop, index) => {
           const stage = proposal.state.stages.find((item) => item.id === stop.stageId)!;
           const distance = distances[index]?.label;
-          return <View key={stop.stageId} style={styles.sequence}>
+          return <View key={stop.stageId} style={styles.sequence} onLayout={(event) => { const layout = event.nativeEvent.layout; setStopLayouts((current) => ({ ...current, [stop.place.place_id.toLowerCase()]: { y: layout.y, height: layout.height } })); }}>
             <View style={styles.rail}><View style={[styles.number, { backgroundColor: theme.accent.primary }]}><ThemedText style={[Typography.badge, { color: theme.accent.onPrimary }]}>{index + 1}</ThemedText></View><View style={[styles.thread, { backgroundColor: theme.border.subtle }]} /></View>
             <View style={[styles.stage, { backgroundColor: theme.background.surface, borderColor: theme.border.subtle }]}>
             <View style={styles.stageHeader}>
@@ -66,7 +79,7 @@ export function WiseProposalCard({ proposal, requestText, onUse, onCustomize, on
                 <ThemedText style={Typography.cardTitle}>{stop.place.name}</ThemedText>
                 {distance ? <ThemedText style={Typography.metadata} themeColor="textSecondary">{distance}</ThemedText> : null}
               </View>
-              <PlaceVisual place={stop.place} placeId={stop.place.place_id} thumbnail />
+              <PlaceVisual place={stop.place} placeId={stop.place.place_id} thumbnail presentation={presentations.get(stop.place.place_id.toLowerCase())} presentationRevision={revisionById[stop.place.place_id.toLowerCase()] ?? 0} onPresentationImageError={() => refresh(stop.place.place_id)} />
             </View>
             <PriceSummary place={stop.place} currencyCode={guidedCurrencyCode} compact />
             <ThemedText style={Typography.caption} themeColor="muted">{stage.source === 'user_added' ? 'Added stop' : stage.required ? 'Core stop' : 'Wise suggestion · optional'}</ThemedText>

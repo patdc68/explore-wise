@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 
 import { PriceSummary } from '@/components/discovery/price-summary';
 import { PlaceVisual } from '@/components/discovery/place-visual';
@@ -14,6 +14,7 @@ import type { PricedNearbyPlace } from '@/services/places';
 import { stageProgressOffset } from '@/services/stage-progress';
 import { CurrentStopActions, stopStatusPresentation } from '@/components/itinerary/itinerary-progress';
 import type { StopStatus } from '@/services/itinerary-execution';
+import type { PlacePresentationV1 } from '../../../../../packages/place-presentation/src/contracts.ts';
 
 export function StageProgress({ state, stageIndex }: { state: ItineraryState; stageIndex: number }) {
   const theme = useTheme();
@@ -69,11 +70,11 @@ export function BudgetSummaryCard({ state, compact = false, planned = false }: {
 
 function BudgetValue({ label, value }: { label: string; value: string }) { return <View style={styles.budgetValue}><ThemedText type="small" themeColor="textSecondary">{label}</ThemedText><ThemedText style={Typography.cardTitle}>{value}</ThemedText></View>; }
 
-export function CustomizeCandidateCard({ place, distanceLabel, highlighted, selected, onHighlight, onSelect }: { place: PricedNearbyPlace; distanceLabel?: string | null; highlighted: boolean; selected: boolean; onHighlight: () => void; onSelect: () => void }) {
+export function CustomizeCandidateCard({ place, distanceLabel, highlighted, selected, onHighlight, onSelect, presentation, presentationRevision = 0, onPresentationImageError, onLayout }: { place: PricedNearbyPlace; distanceLabel?: string | null; highlighted: boolean; selected: boolean; onHighlight: () => void; onSelect: () => void; presentation?: PlacePresentationV1; presentationRevision?: number; onPresentationImageError?: () => void; onLayout?: (event: LayoutChangeEvent) => void }) {
   const theme = useTheme();
-  return <ClayCard variant={highlighted ? 'raised' : 'subtle'} padding="none" style={[styles.customizeCandidate, selected ? { borderColor: theme.accent, borderWidth: 2 } : null]}>
+  return <ClayCard onLayout={onLayout} variant={highlighted ? 'raised' : 'subtle'} padding="none" style={[styles.customizeCandidate, selected ? { borderColor: theme.accent, borderWidth: 2 } : null]}>
     <Pressable accessibilityRole="button" accessibilityLabel={`Candidate ${place.name}${selected ? ', currently selected' : ''}`} accessibilityState={{ selected }} onPress={onHighlight} style={styles.customizeVisual}>
-      <PlaceVisual place={place} placeId={place.place_id} thumbnail />
+      <PlaceVisual place={place} placeId={place.place_id} thumbnail presentation={presentation} presentationRevision={presentationRevision} onPresentationImageError={onPresentationImageError} />
     </Pressable>
     <View style={styles.customizeCandidateContent}>
       <View style={styles.customizeCandidateHeading}>

@@ -41,7 +41,7 @@ function harness(mode: 'light' | 'dark') {
   const progress = load('components/itinerary/itinerary-progress.tsx', { ...shared, '@/services/itinerary-execution': { executionProgress } });
   const card = load('components/itinerary/itinerary-ui.tsx', {
     ...shared, '@/components/itinerary/itinerary-progress': progress,
-    '@/components/discovery/place-visual': load('components/discovery/place-visual.tsx', { ...shared, 'expo-image': { Image: 'Image' }, '@/services/place-visual': load('services/place-visual.ts', {}) }),
+    '@/components/discovery/place-visual': load('components/discovery/place-visual.tsx', { ...shared, 'expo-image': { Image: 'Image' }, '@/services/place-visual': load('services/place-visual.ts', {}), '@/components/place-photo-attribution': { PlacePhotoAttribution: 'PlacePhotoAttribution' } }),
     '@/components/discovery/price-summary': load('components/discovery/price-summary.tsx', { ...shared, '@/services/money': money }),
     '@/services/itinerary': itinerary, '@/services/money': money, '@/services/stage-progress': {},
   });
@@ -103,11 +103,17 @@ function planHarness(mode: 'light' | 'dark', store: Store) {
     useState: (initial: any) => [initial, () => {}], useEffect: (run: () => void, deps: any[]) => { effects.push({ run, deps }); },
     useMemo: (factory: () => any) => factory(), useCallback: (callback: any) => callback,
     useRef: (initial: any) => ({ current: initial }),
+    createContext: (initial: any) => { const context: any = { current: initial }; context.Provider = ({ value, children }: any) => { context.current = value; return children; }; return context; },
+    useContext: (context: any) => context.current,
   };
+  const presentationViewportContext = { current: null, Provider: ({ children }: any) => children };
   const screen = load('app/(tabs)/plan.tsx', {
     ...shared, react,
     'react-native': { ...native, Linking: { openURL: (url: string) => urls.push(url) }, Alert: { alert: (...args: any[]) => alerts.push(args) } },
     '@/hooks/use-floating-tab-inset': { useFloatingTabInset: () => 120 },
+    '@/hooks/use-place-presentations': { usePlacePresentations: () => ({ presentations: new Map(), revisionById: {}, loading: false, refresh: () => {} }) },
+    '@/hooks/use-place-presentation-viewport': { usePresentationViewport: () => null, presentationViewportContext },
+    '@/services/place-presentation-visibility': { visiblePresentationIds: () => [] },
     'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView' },
     'expo-router': { useRouter: () => ({}) }, 'expo-location': {}, 'expo-crypto': {},
     '@/components/ask-wise-card': {}, '@/components/discovery/location-search-sheet': {},
@@ -130,6 +136,7 @@ function planHarness(mode: 'light' | 'dark', store: Store) {
     '@/services/guided-plan-constraints': { guidedCandidateAllowed: () => true, guidedCategoryScopeAllows: () => true, guidedStageIsLocked: () => false },
     '@/services/wise-budget-diagnostics': {}, '@/services/wise-food-diagnostics': {}, '@/services/wise-proposal': {},
     '@/services/google-place-identity': { mergeGoogleIdentityResults: (places: any[]) => places, warmVisibleGooglePlaceIdentities: async () => [] },
+    '@/services/place-presentation-policy': { googlePresentationAllowed: () => false },
   });
   return {
     render: () => { effects = []; const root = screen.default(); presentationKey = root.props.resetScrollKey; return expand(root); },

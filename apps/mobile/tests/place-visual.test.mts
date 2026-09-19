@@ -118,7 +118,7 @@ function harness(mode: 'light' | 'dark') {
   const base = { 'react-native': native, '@/hooks/use-theme': hooks, '@/constants/theme': tokens, react };
   const text = load('components/themed-text.tsx', base);
   const clay = load('components/ui/clay.tsx', { ...base, '@/components/themed-text': text, 'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView' } });
-  const visual = load('components/discovery/place-visual.tsx', { ...base, 'expo-image': { Image: 'Image' }, '@/services/place-visual': resolver });
+  const visual = load('components/discovery/place-visual.tsx', { ...base, 'expo-image': { Image: 'Image' }, '@/services/place-visual': resolver, '@/components/place-photo-attribution': { PlacePhotoAttribution: 'PlacePhotoAttribution' } });
   const card = load('components/discovery/place-card.tsx', {
     ...base, '@/components/themed-text': text, '@/components/ui/clay': clay,
     '@expo/vector-icons/Ionicons': { __esModule: true, default: 'Icon' },
@@ -226,4 +226,45 @@ test('a request failing before display and recycled places recover independently
   assert.equal(nodes(tree, (n) => n.type === 'Image').length, 1, 'renaming must not change image identity');
   tree = app.renderVisual({ ...props, placeId: 'test-2' });
   assert.equal(nodes(tree, (n) => n.type === 'Image').length, 2);
+});
+
+test('Google presentation imagery disables persistence and allows one visible-card refresh', () => {
+  const app = harness('light');
+  let refreshes = 0;
+  const presentation = {
+    presentationVersion: 1,
+    ewPlaceId: '11111111-1111-4111-8111-111111111111',
+    source: 'google_places',
+    fallbackCategory: 'food.restaurant',
+    image: {
+      uri: 'https://lh3.googleusercontent.com/test-photo',
+      provider: 'google_maps',
+      authorAttributions: [],
+      googleMapsUri: 'https://maps.google.com/test-photo',
+    },
+  } as const;
+  let tree = app.renderVisual({ place, placeId: 'google-test', presentation, onPresentationImageError: () => { refreshes += 1; } });
+  const remote = nodes(tree, (n) => n.props.source?.uri === presentation.image.uri)[0];
+  assert.equal(remote.props.cachePolicy, 'none');
+  assert.equal(nodes(tree, (n) => n.type === 'PlacePhotoAttribution').length, 0, 'fallback artwork must not carry Google attribution while the photo loads');
+  remote.props.onDisplay();
+  tree = app.renderVisual({ place, placeId: 'google-test', presentation, onPresentationImageError: () => { refreshes += 1; } });
+  assert.equal(nodes(tree, (n) => n.type === 'PlacePhotoAttribution').length, 1, 'attribution appears only after the Google image is displayed');
+  const displayedRemote = nodes(tree, (n) => n.props.source?.uri === presentation.image.uri)[0];
+  displayedRemote.props.onError();
+  tree = app.renderVisual({ place, placeId: 'google-test', presentation, onPresentationImageError: () => { refreshes += 1; } });
+  assert.equal(nodes(tree, (n) => n.type === 'PlacePhotoAttribution').length, 0, 'failed Google imagery restores fallback without attribution');
+  assert.equal(refreshes, 1);
+  tree = app.renderVisual({ place, placeId: 'google-test', presentation, presentationRevision: 1, onPresentationImageError: () => { refreshes += 1; } });
+  assert.equal(nodes(tree, (n) => n.type === 'PlacePhotoAttribution').length, 0, 'fresh retry keeps attribution hidden while loading');
+  const retryRemote = nodes(tree, (n) => n.props.source?.uri === presentation.image.uri)[0];
+  retryRemote.props.onDisplay();
+  tree = app.renderVisual({ place, placeId: 'google-test', presentation, presentationRevision: 1, onPresentationImageError: () => { refreshes += 1; } });
+  assert.equal(nodes(tree, (n) => n.type === 'PlacePhotoAttribution').length, 1, 'successful retry restores attribution');
+  nodes(tree, (n) => n.props.source?.uri === presentation.image.uri)[0].props.onError();
+  tree = app.renderVisual({ place, placeId: 'google-test', presentation, presentationRevision: 1, onPresentationImageError: () => { refreshes += 1; } });
+  assert.equal(nodes(tree, (n) => n.type === 'PlacePhotoAttribution').length, 0, 'second failure remains fallback without attribution');
+  const attributionSource = readFileSync(new URL('../src/components/place-photo-attribution.tsx', import.meta.url), 'utf8');
+  assert.match(attributionSource, /sourceText:[^\n]*fontSize: 12/);
+  assert.equal(nodes(tree, (n) => n.props.source?.uri === presentation.image.uri).length, 0);
 });

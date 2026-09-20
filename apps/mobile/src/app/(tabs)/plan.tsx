@@ -23,7 +23,7 @@ import { WiseProposalCard } from '@/components/wise-proposal-card';
 import { MaxContentWidth, Radius, Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { usePlacePresentations } from '@/hooks/use-place-presentations';
-import { presentationViewportContext, type PresentationViewport } from '@/hooks/use-place-presentation-viewport';
+import { mergePresentationScrollMetrics, presentationViewportContext, readPresentationLayoutHeight, readPresentationScrollMetrics, type PresentationViewport } from '@/hooks/use-place-presentation-viewport';
 import { useCurrentLocation } from '@/providers/current-location-provider';
 import { usePlanningAlternatives } from '@/providers/planning-alternatives-provider';
 import { usePlanningHandoff } from '@/providers/planning-handoff-provider';
@@ -378,12 +378,22 @@ function Shell({ children, theme, bottomAction, resetScrollKey, capturePresentat
   const { error, store } = useItineraryExecution();
   const bottomInset = useFloatingTabInset();
   const scrollRef = useRef<ScrollView>(null);
-  const [presentationViewport, setPresentationViewport] = useState<PresentationViewport>({ scrollY: 0, viewportHeight: 0 });
+  const [presentationViewport, setPresentationViewport] = useState<PresentationViewport>({ scrollY: null, viewportHeight: 0 });
   // Starting from a scrolled preview must reveal the current stop immediately.
   useEffect(() => { if (resetScrollKey) scrollRef.current?.scrollTo({ y: 0, animated: false }); }, [resetScrollKey]);
   return <presentationViewportContext.Provider value={capturePresentationVisibility ? presentationViewport : null}><View style={[styles.screen, { backgroundColor: theme.background }]}>
     <SafeAreaView edges={['top']} style={styles.safe}>
-      <ScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: bottomAction ? Spacing.lg : bottomInset }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} onLayout={capturePresentationVisibility ? (event) => setPresentationViewport((current) => ({ ...current, viewportHeight: event.nativeEvent.layout.height })) : undefined} onScroll={capturePresentationVisibility ? (event) => setPresentationViewport((current) => ({ ...current, scrollY: event.nativeEvent.contentOffset.y })) : undefined} scrollEventThrottle={capturePresentationVisibility ? 100 : undefined}>
+      <ScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: bottomAction ? Spacing.lg : bottomInset }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}
+        onLayout={capturePresentationVisibility ? (event) => {
+          const viewportHeight = readPresentationLayoutHeight(event);
+          if (viewportHeight === null) return;
+          setPresentationViewport((current) => ({ ...current, viewportHeight }));
+        } : undefined}
+        onScroll={capturePresentationVisibility ? (event) => {
+          const { offsetY, viewportHeight } = readPresentationScrollMetrics(event);
+          setPresentationViewport((current) => mergePresentationScrollMetrics(current, offsetY, viewportHeight));
+        } : undefined}
+        scrollEventThrottle={capturePresentationVisibility ? 100 : undefined}>
         {error ? <StateCard title="Device storage" message={error} actionLabel="Retry" onAction={() => void store.retry()} /> : null}
         {children}
       </ScrollView>

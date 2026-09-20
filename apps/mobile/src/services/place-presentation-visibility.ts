@@ -1,5 +1,5 @@
 export type PresentationViewport = Readonly<{
-  scrollY: number;
+  scrollY: number | null;
   viewportHeight: number;
 }>;
 
@@ -19,7 +19,7 @@ export function visiblePresentationIds(
   layouts: Readonly<Record<string, PresentationLayout>>,
   maxPlaces = 3,
 ): readonly string[] {
-  if (!viewport || !Number.isFinite(viewport.scrollY) || !Number.isFinite(viewport.viewportHeight) || viewport.viewportHeight <= 0 || maxPlaces <= 0) return [];
+  if (!viewport || viewport.scrollY === null || !Number.isFinite(viewport.scrollY) || !Number.isFinite(viewport.viewportHeight) || viewport.viewportHeight <= 0 || maxPlaces <= 0) return [];
   const viewportStart = viewport.scrollY;
   const viewportEnd = viewportStart + viewport.viewportHeight;
   return orderedIds.filter((id) => {

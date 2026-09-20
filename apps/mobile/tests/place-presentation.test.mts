@@ -4,6 +4,7 @@ import test from 'node:test';
 import ts from 'typescript';
 
 import * as contracts from '../../../packages/place-presentation/src/contracts.ts';
+import { mergePresentationScrollMetrics, readPresentationLayoutHeight, readPresentationScrollMetrics } from '../src/hooks/use-place-presentation-viewport.ts';
 import { visiblePresentationIds } from '../src/services/place-presentation-visibility.ts';
 
 const firstId = '11111111-1111-4111-8111-111111111111';
@@ -207,17 +208,118 @@ test('viewport evidence, not rendered order, controls bounded presentation eligi
   assert.deepEqual(visiblePresentationIds(ids, { scrollY: 0, viewportHeight: 500 }, { [firstId]: { y: 0, height: 0 }, [secondId]: { y: Number.NaN, height: 100 } }), []);
 });
 
+test('Proposal viewport tracking snapshots native metrics before deferred state updates', async () => {
+  const ids = [firstId, secondId, '33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444', '55555555-5555-4555-8555-555555555555'];
+  const layouts = {
+    [firstId]: { y: 0, height: 100 },
+    [secondId]: { y: 120, height: 100 },
+    [ids[2]]: { y: 240, height: 100 },
+    [ids[3]]: { y: 360, height: 100 },
+    [ids[4]]: { y: 480, height: 100 },
+  };
+  let state = { scrollY: null as number | null, viewportHeight: 0 };
+
+  // This mirrors Shell's production path: read native values in the handler,
+  // then pass only primitive snapshots into the deferred state update.
+  const applyScrollEvent = (event: any) => {
+    const { offsetY, viewportHeight } = readPresentationScrollMetrics(event);
+    state = mergePresentationScrollMetrics(state, offsetY, viewportHeight);
+  };
+  const presentationCalls: string[][] = [];
+  const presentationHook = loadPresentationHook(presentationCalls);
+  const emitPresentationCandidates = async () => {
+    const visibleIds = visiblePresentationIds(ids, state, layouts);
+    await presentationHook.render(visibleIds.map((place_id) => ({ place_id })));
+    return visibleIds;
+  };
+
+  applyScrollEvent({ nativeEvent: { contentOffset: { y: 400 }, layoutMeasurement: { height: 220 } } });
+  assert.deepEqual(state, { scrollY: 400, viewportHeight: 220 });
+  assert.deepEqual(await emitPresentationCandidates(), [ids[3], ids[4]]);
+  assert.deepEqual(presentationCalls, [[ids[3], ids[4]]]);
+
+  const event: any = { nativeEvent: { contentOffset: { y: 400 }, layoutMeasurement: { height: 220 } } };
+  const { offsetY, viewportHeight } = readPresentationScrollMetrics(event);
+  event.nativeEvent = null;
+  let deferredState = state;
+  const deferredUpdate = () => {
+    deferredState = mergePresentationScrollMetrics(deferredState, offsetY, viewportHeight);
+  };
+  assert.doesNotThrow(deferredUpdate);
+  assert.deepEqual(deferredState, { scrollY: 400, viewportHeight: 220 });
+
+  // A malformed event must invalidate visibility rather than reuse the prior
+  // height with a fabricated scrollY of zero.
+  assert.doesNotThrow(() => applyScrollEvent({ nativeEvent: { contentOffset: null, layoutMeasurement: null } }));
+  assert.deepEqual(state, { scrollY: null, viewportHeight: 220 });
+  assert.deepEqual(await emitPresentationCandidates(), [], 'invalid viewport evidence emits no presentation IDs');
+  assert.deepEqual(presentationCalls, [[ids[3], ids[4]]], 'invalid viewport evidence emits no presentation request');
+
+  assert.deepEqual(readPresentationScrollMetrics({ nativeEvent: null }), { offsetY: null, viewportHeight: null });
+  assert.equal(readPresentationLayoutHeight({ nativeEvent: null }), null);
+
+  // A later valid event restores normal intersection-based enrichment.
+  applyScrollEvent({ nativeEvent: { contentOffset: { y: 0 }, layoutMeasurement: { height: 220 } } });
+  assert.deepEqual(state, { scrollY: 0, viewportHeight: 220 });
+  assert.deepEqual(await emitPresentationCandidates(), [firstId, secondId]);
+  assert.deepEqual(presentationCalls, [[ids[3], ids[4]], [firstId, secondId]]);
+});
+
+test('invalid scroll metrics never fabricate visibility, while measured height can be reused safely', () => {
+  const ids = [firstId, secondId, '33333333-3333-4333-8333-333333333333'];
+  const layouts = {
+    [firstId]: { y: 0, height: 100 },
+    [secondId]: { y: 400, height: 100 },
+    [ids[2]]: { y: 520, height: 100 },
+  };
+  const invalidScrollEvents = [
+    { nativeEvent: { layoutMeasurement: { height: 220 } } },
+    { nativeEvent: { contentOffset: null, layoutMeasurement: null } },
+    { nativeEvent: { contentOffset: {}, layoutMeasurement: { height: 220 } } },
+    { nativeEvent: { contentOffset: { y: null }, layoutMeasurement: { height: 220 } } },
+    { nativeEvent: { contentOffset: { y: Number.NaN }, layoutMeasurement: { height: 220 } } },
+    { nativeEvent: { contentOffset: { y: Number.POSITIVE_INFINITY }, layoutMeasurement: { height: 220 } } },
+  ];
+
+  for (const event of invalidScrollEvents) {
+    let state = { scrollY: 400, viewportHeight: 220 };
+    assert.doesNotThrow(() => {
+      const { offsetY, viewportHeight } = readPresentationScrollMetrics(event);
+      state = mergePresentationScrollMetrics(state, offsetY, viewportHeight);
+    });
+    assert.equal(state.scrollY, null);
+    assert.deepEqual(visiblePresentationIds(ids, state, layouts), [], 'invalid scroll evidence cannot enrich cards');
+  }
+
+  for (const event of [
+    { nativeEvent: { contentOffset: { y: 400 } } },
+    { nativeEvent: { contentOffset: { y: 400 }, layoutMeasurement: null } },
+  ]) {
+    let state = { scrollY: 0, viewportHeight: 220 };
+    const { offsetY, viewportHeight } = readPresentationScrollMetrics(event);
+    state = mergePresentationScrollMetrics(state, offsetY, viewportHeight);
+    assert.deepEqual(state, { scrollY: 400, viewportHeight: 220 });
+    assert.deepEqual(visiblePresentationIds(ids, state, layouts), [secondId, ids[2]]);
+  }
+});
+
 test('Proposal, Customize, and View More wire presentation requests only to measured visibility', () => {
   const proposal = readFileSync(new URL('../src/components/wise-proposal-card.tsx', import.meta.url), 'utf8');
   const plan = readFileSync(new URL('../src/app/(tabs)/plan.tsx', import.meta.url), 'utf8');
   const alternatives = readFileSync(new URL('../src/app/plan/alternatives.tsx', import.meta.url), 'utf8');
+  const shell = plan.slice(plan.indexOf('function Shell'), plan.indexOf('function Heading'));
   assert.match(proposal, /visiblePresentationIds/);
   assert.doesNotMatch(proposal, /stops\.slice\(0,\s*3\)/);
   assert.match(plan, /visiblePresentationIds/);
   assert.doesNotMatch(plan, /const initial = candidates\.slice\(0,\s*3\)/);
+  assert.match(shell, /readPresentationScrollMetrics\(event\)/);
+  assert.match(shell, /mergePresentationScrollMetrics\(current, offsetY, viewportHeight\)/);
+  assert.doesNotMatch(shell, /event\.nativeEvent/);
   assert.match(alternatives, /const presentationCandidates = presentationWindow/);
   assert.match(alternatives, /googlePresentationAllowed\('alternatives'\)/);
   assert.doesNotMatch(alternatives, /allowGoogle:\s*true/);
+  assert.match(alternatives, /setPresentationWindow\(next\)/);
+  assert.doesNotMatch(alternatives, /setPresentationWindow\(\(current\).*nativeEvent/);
 });
 
 test('mobile presentation orchestration has no server key, photo persistence, or prefetch path', () => {
